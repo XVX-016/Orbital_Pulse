@@ -1,0 +1,60 @@
+import { useEffect, useState } from "react";
+import { Link, NavLink } from "react-router-dom";
+import { cn } from "@/lib/utils";
+
+const NAV_LINKS = [
+  { to: "/globe", label: "Globe" },
+  { to: "/change-detection", label: "Change Detection" },
+  { to: "/about", label: "About" },
+];
+
+export default function Navbar() {
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  return (
+    <header
+      className={cn(
+        "fixed top-0 left-0 right-0 z-50 h-16 transition-colors duration-200",
+        scrolled
+          ? "bg-background border-b border-border"
+          : "bg-transparent border-b border-transparent",
+      )}
+    >
+      <div className="mx-auto flex h-full max-w-[1400px] items-center justify-between px-6">
+        <Link
+          to="/"
+          className="flex items-center gap-2 text-body font-semibold tracking-[0.02em] text-foreground"
+        >
+          <span className="h-2 w-2 rounded-full bg-primary" aria-hidden />
+          ORBITAL
+        </Link>
+
+        <nav className="flex items-center gap-8">
+          {NAV_LINKS.map((link) => (
+            <NavLink
+              key={link.to}
+              to={link.to}
+              className={({ isActive }) =>
+                cn(
+                  "text-body text-secondary-foreground/0 pb-1 border-b border-transparent transition-colors",
+                  isActive
+                    ? "text-foreground border-primary"
+                    : "text-muted-foreground hover:text-foreground",
+                )
+              }
+            >
+              {link.label}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+    </header>
+  );
+}
