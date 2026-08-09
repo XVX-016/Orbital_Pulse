@@ -1,5 +1,5 @@
 {
-  "name": "fusion-starter",
+  "name": "orbital-pulse",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,10 @@
     "typecheck": "tsc"
   },
   "dependencies": {
+    "cesium": "^1.144.0",
     "dotenv": "^17.4.2",
+    "resium": "^1.25.0",
+    "vite-plugin-static-copy": "^4.1.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

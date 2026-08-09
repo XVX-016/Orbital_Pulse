@@ -1,6 +1,13 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { ChevronRight, Layers3, Pause, Play, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Viewer } from "resium";
+import { Ion, Color, Viewer as CesiumViewer } from "cesium";
+import "cesium/Build/Cesium/Widgets/widgets.css";
+
+if (import.meta.env.VITE_CESIUM_ION_TOKEN) {
+  Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
+}
 
 const INSPECTOR_FIELDS = [
   ["Satellite Name", "Awaiting selection"],
@@ -15,15 +22,49 @@ export default function Globe() {
   const [layersVisible, setLayersVisible] = useState(true);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
 
+  const handleViewerReady = useCallback((viewer: CesiumViewer) => {
+    if (!viewer || viewer.isDestroyed()) return;
+    const scene = viewer.scene;
+
+    // Match --background (hsl(0, 0%, 4%))
+    scene.backgroundColor = Color.fromCssColorString("hsl(0, 0%, 4%)");
+    if (scene.skyBox) {
+      scene.skyBox.show = false;
+    }
+
+    // Match --secondary / --accent dark navy (hsl(221, 47%, 20%))
+    scene.globe.baseColor = Color.fromCssColorString("hsl(221, 47%, 20%)");
+    scene.globe.showGroundAtmosphere = true;
+    scene.globe.enableLighting = true;
+
+    if (scene.skyAtmosphere) {
+      scene.skyAtmosphere.show = true;
+    }
+  }, []);
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-background">
-      <div
-        className="absolute left-1/2 top-[53%] h-[min(78vw,780px)] w-[min(78vw,780px)] -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/40 bg-[radial-gradient(circle_at_34%_27%,hsl(var(--accent)/0.58),hsl(var(--secondary)/0.5)_42%,hsl(var(--background))_76%)] shadow-[inset_-70px_-45px_120px_hsl(var(--background)/0.94)] transition-opacity duration-300 sm:left-[52%]"
-        style={{ opacity: layersVisible ? 1 : 0.82 }}
-        aria-label="Placeholder for interactive 3D Earth globe"
-      />
-      <div className="pointer-events-none absolute left-1/2 top-[53%] h-[min(86vw,860px)] w-[min(86vw,860px)] -translate-x-1/2 -translate-y-1/2 rounded-full border border-border/50 sm:left-[52%]" />
-      <div className="pointer-events-none absolute left-1/2 top-[53%] h-[min(98vw,980px)] w-[min(98vw,980px)] -translate-x-1/2 -translate-y-1/2 rounded-full border border-border/30 sm:left-[52%]" />
+      <div className="absolute inset-0 z-0 [&_.cesium-viewer-bottom]:hidden">
+        <Viewer
+          full
+          animation={false}
+          timeline={false}
+          baseLayerPicker={false}
+          fullscreenButton={false}
+          geocoder={false}
+          homeButton={false}
+          infoBox={false}
+          sceneModePicker={false}
+          selectionIndicator={false}
+          navigationHelpButton={false}
+          navigationInstructionsInitiallyVisible={false}
+          ref={(e) => {
+            if (e?.cesiumElement) {
+              handleViewerReady(e.cesiumElement);
+            }
+          }}
+        />
+      </div>
 
       <div className="absolute left-1/2 top-20 z-20 -translate-x-1/2">
         <label className="group flex h-11 w-11 items-center overflow-hidden rounded-md border border-border bg-card/90 backdrop-blur-md transition-all duration-200 focus-within:w-[min(310px,calc(100vw-48px))]">
