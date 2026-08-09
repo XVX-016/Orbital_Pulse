@@ -23,6 +23,9 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: "dist/spa",
   },
+  worker: {
+    format: "es",
+  },
   plugins: [
     react(),
     viteStaticCopy({
