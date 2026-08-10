@@ -168,7 +168,12 @@ export function parseTLECatalog(tleText: string): SatelliteData[] {
   return satellites;
 }
 
-export async function fetchSatelliteCatalog(): Promise<SatelliteData[]> {
+export interface SatelliteCatalogResult {
+  satellites: SatelliteData[];
+  source: "live" | "fallback";
+}
+
+export async function fetchSatelliteCatalog(): Promise<SatelliteCatalogResult> {
   const orbitServiceUrl = import.meta.env.VITE_ORBIT_SERVICE_URL || "http://localhost:8081";
   
   try {
@@ -184,11 +189,22 @@ export async function fetchSatelliteCatalog(): Promise<SatelliteData[]> {
       throw new Error(`Failed to fetch from orbit-service: ${res.statusText}`);
     }
 
+    // Guard against SPA catch-all returning index.html with 200 OK
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("text/html")) {
+      throw new Error("Orbit service returned HTML instead of TLE data");
+    }
+
     const text = await res.text();
     const parsed = parseTLECatalog(text);
-    return parsed;
+
+    if (parsed.length === 0) {
+      throw new Error("Orbit service returned no valid TLE entries");
+    }
+
+    return { satellites: parsed, source: "live" };
   } catch (err) {
     console.error("Orbit service fetch error, using fallback hardcoded catalog:", err);
-    return parseTLECatalog(HARDCODED_TLE_STRING);
+    return { satellites: parseTLECatalog(HARDCODED_TLE_STRING), source: "fallback" };
   }
 }

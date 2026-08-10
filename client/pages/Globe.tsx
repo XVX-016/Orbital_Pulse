@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { ChevronRight, Layers3, Pause, Play, Search, X, Satellite, Radio, Crosshair, Sparkles } from "lucide-react";
+import { ChevronRight, Layers3, Pause, Play, Search, X, Satellite, Radio, Crosshair } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Viewer } from "resium";
-import { Ion, Color, Viewer as CesiumViewer, Cartesian3, CustomDataSource, Entity, HeadingPitchRange, ScreenSpaceEventHandler, ScreenSpaceEventType, WebMapTileServiceImageryProvider, createWorldImageryAsync } from "cesium";
+import { Ion, Color, Viewer as CesiumViewer, Cartesian3, CustomDataSource, HeadingPitchRange, ScreenSpaceEventHandler, ScreenSpaceEventType, WebMapTileServiceImageryProvider, createWorldImageryAsync } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import { fetchSatelliteCatalog, propagateSatellite, SatelliteData, SatellitePosition } from "@/lib/satellite-service";
 
@@ -31,9 +31,10 @@ export default function Globe() {
   useEffect(() => {
     let isMounted = true;
     fetchSatelliteCatalog()
-      .then((data) => {
+      .then((result) => {
         if (!isMounted) return;
-        setSatellites(data);
+        setSatellites(result.satellites);
+        setCatalogSource(result.source === "live" ? "Orbit Service" : "Offline Catalog");
         setError(null);
       })
       .catch((err) => {
@@ -103,7 +104,7 @@ export default function Globe() {
 
     scene.globe.baseColor = Color.fromCssColorString("hsl(0, 0%, 4%)");
     scene.globe.showGroundAtmosphere = true;
-    scene.globe.enableLighting = true;
+    scene.globe.enableLighting = false;
 
     if (scene.skyAtmosphere) {
       scene.skyAtmosphere.show = true;

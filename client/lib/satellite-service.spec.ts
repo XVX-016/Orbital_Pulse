@@ -38,7 +38,8 @@ describe("satellite-service", () => {
   });
 
   it("fetches satellite catalog and utilizes fallback/cache", async () => {
-    const catalog = await fetchSatelliteCatalog();
-    expect(catalog.length).toBeGreaterThan(0);
+    const result = await fetchSatelliteCatalog();
+    expect(result.satellites.length).toBeGreaterThan(0);
+    expect(["live", "fallback"]).toContain(result.source);
   }, 10000);
 });

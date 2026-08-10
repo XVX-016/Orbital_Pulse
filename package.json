@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "orbit-service": "tsx server/index.ts",
     "build": "vite build",
     "test": "vitest --run",
     "format.fix": "prettier --write .",
@@ -11,7 +12,9 @@
   },
   "dependencies": {
     "cesium": "^1.144.0",
+    "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "express": "^5.2.1",
     "resium": "^1.25.0",
     "satellite.js": "^7.1.0",
     "vite-plugin-static-copy": "^4.1.1",
