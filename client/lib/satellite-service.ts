@@ -168,59 +168,27 @@ export function parseTLECatalog(tleText: string): SatelliteData[] {
   return satellites;
 }
 
-const CACHE_KEY = "orbital_pulse_satellites_tle_v1";
-const CACHE_TIME_KEY = "orbital_pulse_satellites_tle_timestamp_v1";
-const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
-
 export async function fetchSatelliteCatalog(): Promise<SatelliteData[]> {
-  // 1. Try local storage cache first
-  if (typeof window !== "undefined" && window.localStorage) {
-    try {
-      const cachedTimeStr = localStorage.getItem(CACHE_TIME_KEY);
-      const cachedData = localStorage.getItem(CACHE_KEY);
-      if (cachedTimeStr && cachedData) {
-        const cachedTime = parseInt(cachedTimeStr, 10);
-        if (Date.now() - cachedTime < CACHE_DURATION_MS) {
-          const parsed = parseTLECatalog(cachedData);
-          if (parsed.length > 0) {
-            return parsed;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("localStorage read failed:", e);
-    }
-  }
-
-  // 2. Fetch active satellites from CelesTrak with abort timeout
+  const orbitServiceUrl = import.meta.env.VITE_ORBIT_SERVICE_URL || "http://localhost:8081";
+  
   try {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 3500) : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
 
-    const res = await fetch("https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle", {
+    const res = await fetch(`${orbitServiceUrl}/api/tle`, {
       signal: controller?.signal,
     });
     if (timeoutId) clearTimeout(timeoutId);
 
-    if (res.ok) {
-      const text = await res.text();
-      const parsed = parseTLECatalog(text);
-      if (parsed.length > 0) {
-        if (typeof window !== "undefined" && window.localStorage) {
-          try {
-            localStorage.setItem(CACHE_KEY, text);
-            localStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
-          } catch (e) {
-            console.warn("localStorage write failed:", e);
-          }
-        }
-        return parsed;
-      }
+    if (!res.ok) {
+      throw new Error(`Failed to fetch from orbit-service: ${res.statusText}`);
     }
-  } catch (err) {
-    console.warn("CelesTrak fetch error, using fallback hardcoded catalog:", err);
-  }
 
-  // 3. Fallback to hardcoded subset
-  return parseTLECatalog(HARDCODED_TLE_STRING);
+    const text = await res.text();
+    const parsed = parseTLECatalog(text);
+    return parsed;
+  } catch (err) {
+    console.error("Orbit service fetch error:", err);
+    throw new Error("Orbit service is unreachable. Please ensure it is running.");
+  }
 }

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { ChevronRight, Layers3, Pause, Play, Search, X, Satellite, Radio, Crosshair, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Viewer } from "resium";
-import { Ion, Color, Viewer as CesiumViewer, Cartesian3, CustomDataSource, Entity, HeadingPitchRange, ScreenSpaceEventHandler, ScreenSpaceEventType } from "cesium";
+import { Ion, Color, Viewer as CesiumViewer, Cartesian3, CustomDataSource, Entity, HeadingPitchRange, ScreenSpaceEventHandler, ScreenSpaceEventType, WebMapTileServiceImageryProvider, createWorldImageryAsync } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import { fetchSatelliteCatalog, propagateSatellite, SatelliteData, SatellitePosition } from "@/lib/satellite-service";
 
@@ -19,25 +19,27 @@ export default function Globe() {
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedSat, setSelectedSat] = useState<SatelliteData | null>(null);
   const [selectedPos, setSelectedPos] = useState<SatellitePosition | null>(null);
-  const [catalogSource, setCatalogSource] = useState<"CelesTrak" | "Initial Subset">("Initial Subset");
+  const [catalogSource, setCatalogSource] = useState<string>("Orbit Service");
+  const [error, setError] = useState<string | null>(null);
 
   const viewerRef = useRef<CesiumViewer | null>(null);
   const dataSourceRef = useRef<CustomDataSource | null>(null);
   const isPlayingRef = useRef(isPlaying);
   isPlayingRef.current = isPlaying;
 
-  // Load Satellite TLE catalog (starts with hardcoded ~20 fallback then fetches CelesTrak with 24h cache)
+  // Load Satellite TLE catalog
   useEffect(() => {
     let isMounted = true;
-    fetchSatelliteCatalog().then((data) => {
-      if (!isMounted) return;
-      setSatellites(data);
-      if (data.length > 30) {
-        setCatalogSource("CelesTrak");
-      } else {
-        setCatalogSource("Initial Subset");
-      }
-    });
+    fetchSatelliteCatalog()
+      .then((data) => {
+        if (!isMounted) return;
+        setSatellites(data);
+        setError(null);
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        setError(err.message);
+      });
     return () => {
       isMounted = false;
     };
@@ -98,13 +100,46 @@ export default function Globe() {
       scene.skyBox.show = false;
     }
 
-    scene.globe.baseColor = Color.fromCssColorString("hsl(221, 47%, 20%)");
+    scene.globe.baseColor = Color.fromCssColorString("hsl(0, 0%, 4%)");
     scene.globe.showGroundAtmosphere = true;
     scene.globe.enableLighting = true;
 
     if (scene.skyAtmosphere) {
       scene.skyAtmosphere.show = true;
+      scene.skyAtmosphere.brightnessShift = -0.4; // Darken the atmosphere glow
+      scene.skyAtmosphere.hueShift = -0.1; // Shift slightly towards navy
     }
+
+    // Setup NASA GIBS Imagery Layer with fallback
+    const setupImagery = async () => {
+      try {
+        const date = new Date();
+        date.setDate(date.getDate() - 1); // Use yesterday to ensure data is available
+        const dateStr = date.toISOString().split('T')[0];
+        
+        const gibsProvider = new WebMapTileServiceImageryProvider({
+          url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${dateStr}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.jpg`,
+          layer: "VIIRS_SNPP_CorrectedReflectance_TrueColor",
+          style: "default",
+          format: "image/jpeg",
+          tileMatrixSetID: "GoogleMapsCompatible_Level9",
+          maximumLevel: 9,
+          credit: "NASA GIBS",
+        });
+        
+        viewer.imageryLayers.removeAll();
+        viewer.imageryLayers.addImageryProvider(gibsProvider);
+      } catch (err) {
+        console.error("Failed to load NASA GIBS, falling back to World Imagery", err);
+        try {
+          const fallbackProvider = await createWorldImageryAsync();
+          viewer.imageryLayers.addImageryProvider(fallbackProvider);
+        } catch (e) {
+          console.error("Fallback imagery failed", e);
+        }
+      }
+    };
+    setupImagery();
 
     // Setup CustomDataSource for satellite entities
     let dataSource = dataSourceRef.current;
@@ -230,6 +265,12 @@ export default function Globe() {
           }}
         />
       </div>
+
+      {error && (
+        <div className="absolute top-4 left-1/2 z-50 -translate-x-1/2 rounded-md bg-destructive/90 px-4 py-2 text-sm font-medium text-destructive-foreground backdrop-blur shadow-lg border border-destructive/50 flex items-center gap-2">
+          <span>{error}</span>
+        </div>
+      )}
 
       {/* Top Bar: Search Bar with Autocomplete & Active Status */}
       <div className="absolute left-1/2 top-16 z-20 -translate-x-1/2 flex flex-col items-center gap-2">
