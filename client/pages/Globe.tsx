@@ -89,6 +89,7 @@ export default function Globe() {
   }, []);
 
   const handleViewerReady = useCallback((viewer: CesiumViewer) => {
+    if (viewerRef.current === viewer) return;
     if (!viewer || viewer.isDestroyed()) return;
     viewerRef.current = viewer;
 
@@ -169,7 +170,7 @@ export default function Globe() {
     };
   }, []);
 
-  // Update satellite point entities when catalog or time ticks
+  // Create satellite point entities when catalog updates
   useEffect(() => {
     const dataSource = dataSourceRef.current;
     if (!dataSource || satellites.length === 0) return;
@@ -188,10 +189,8 @@ export default function Globe() {
         name: sat.name,
         position: positionCartesian as any,
         point: {
-          pixelSize: selectedSat?.noradId === sat.noradId ? 10 : 6,
-          color: selectedSat?.noradId === sat.noradId
-            ? Color.fromCssColorString("#38bdf8") // Bright Sky Blue when selected
-            : Color.fromCssColorString("#06b6d4"), // Cyan for active satellites
+          pixelSize: 6,
+          color: Color.fromCssColorString("#06b6d4"), // Cyan for active satellites
           outlineColor: Color.fromCssColorString("#0284c7"),
           outlineWidth: 1.5,
         },
@@ -200,7 +199,40 @@ export default function Globe() {
         },
       });
     });
-  }, [satellites, selectedSat?.noradId]);
+  }, [satellites]);
+
+  // Update selection highlight without removing entities
+  const prevSelectedIdRef = useRef<string | null>(null);
+  
+  useEffect(() => {
+    const dataSource = dataSourceRef.current;
+    if (!dataSource) return;
+
+    const prevId = prevSelectedIdRef.current;
+    const currentId = selectedSat?.noradId;
+
+    if (prevId === currentId) return;
+
+    // Revert previous selection
+    if (prevId) {
+      const prevEntity = dataSource.entities.getById(prevId);
+      if (prevEntity && prevEntity.point) {
+        prevEntity.point.pixelSize = 6 as any;
+        prevEntity.point.color = Color.fromCssColorString("#06b6d4") as any;
+      }
+    }
+
+    // Highlight new selection
+    if (currentId) {
+      const newEntity = dataSource.entities.getById(currentId);
+      if (newEntity && newEntity.point) {
+        newEntity.point.pixelSize = 10 as any;
+        newEntity.point.color = Color.fromCssColorString("#38bdf8") as any;
+      }
+    }
+
+    prevSelectedIdRef.current = currentId || null;
+  }, [selectedSat?.noradId]);
 
   // Throttled clock update loop (recomputes satellite positions every 1 second)
   useEffect(() => {

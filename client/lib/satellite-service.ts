@@ -188,7 +188,7 @@ export async function fetchSatelliteCatalog(): Promise<SatelliteData[]> {
     const parsed = parseTLECatalog(text);
     return parsed;
   } catch (err) {
-    console.error("Orbit service fetch error:", err);
-    throw new Error("Orbit service is unreachable. Please ensure it is running.");
+    console.error("Orbit service fetch error, using fallback hardcoded catalog:", err);
+    return parseTLECatalog(HARDCODED_TLE_STRING);
   }
 }
