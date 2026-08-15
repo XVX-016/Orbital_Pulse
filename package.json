@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "orbit-service": "tsx server/index.ts",
+    "orbit-service": "tsx orbit-service/index.ts",
     "build": "vite build",
     "test": "vitest --run",
     "format.fix": "prettier --write .",

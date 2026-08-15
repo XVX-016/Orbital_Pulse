@@ -13,9 +13,9 @@ COPY package.json pnpm-lock.yaml ./
 # we install all dependencies.
 RUN pnpm install --frozen-lockfile
 
-# Copy server source code
+# Copy orbit-service source code
 # We also copy shared/ if it exists (as index.ts might import from shared)
-COPY server/ ./server/
+COPY orbit-service/ ./orbit-service/
 COPY shared/ ./shared/
 COPY tsconfig.json .
 

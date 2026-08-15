@@ -27,7 +27,7 @@ services:
   orbit-service:
     build:
       context: .
-      dockerfile: server/Dockerfile
+      dockerfile: orbit-service/Dockerfile
     ports:
       - "8081:8081"
     environment:

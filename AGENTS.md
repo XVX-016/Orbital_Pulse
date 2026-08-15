@@ -21,8 +21,8 @@ client/                   # React SPA frontend
 ├── App.tsx                # App entry point and with SPA routing setup
 └── global.css            # TailwindCSS 3 theming and global styles
 
-server/                   # Express API backend
-├── index.ts              # Main server setup (express config + routes)
+orbit-service/            # Orbit Service (Express TLE proxy)
+├── index.ts              # Main service setup (express config + routes)
 └── routes/               # API handlers
 
 shared/                   # Types used by both client & server
@@ -112,7 +112,7 @@ export interface MyRouteResponse {
 }
 ```
 
-2. Create a new route handler in `server/routes/my-route.ts`:
+2. Create a new route handler in `orbit-service/routes/my-route.ts`:
 ```typescript
 import { RequestHandler } from "express";
 import { MyRouteResponse } from "@shared/api"; // Optional: for type safety
@@ -125,7 +125,7 @@ export const handleMyRoute: RequestHandler = (req, res) => {
 };
 ```
 
-3. Register the route in `server/index.ts`:
+3. Register the route in `orbit-service/index.ts`:
 ```typescript
 import { handleMyRoute } from "./routes/my-route";
 

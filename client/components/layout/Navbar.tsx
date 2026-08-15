@@ -21,13 +21,13 @@ export default function Navbar() {
   return (
     <header
       className={cn(
-        "fixed top-0 left-0 right-0 z-50 h-16 transition-colors duration-200",
+        "pointer-events-none fixed top-0 left-0 right-0 z-50 h-16 transition-colors duration-200",
         scrolled
-          ? "bg-background border-b border-border"
+          ? "bg-background/90 border-b border-border backdrop-blur-md"
           : "bg-transparent border-b border-transparent",
       )}
     >
-      <div className="mx-auto flex h-full max-w-[1400px] items-center justify-between px-6">
+      <div className="pointer-events-auto mx-auto flex h-full max-w-[1400px] items-center justify-between px-6">
         <Link
           to="/"
           className="flex items-center gap-2 text-body font-semibold tracking-[0.02em] text-foreground"

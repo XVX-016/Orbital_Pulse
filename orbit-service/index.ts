@@ -99,6 +99,6 @@ app.get("/api/tle", async (req: Request, res: Response) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`[Orbit Service] Server listening on port ${PORT}`);
+  console.log(`[Orbit Service] Orbit service listening on port ${PORT}`);
   console.log(`[Orbit Service] CORS configured for frontend origin: ${FRONTEND_ORIGIN}`);
 });
