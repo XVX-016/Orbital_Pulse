@@ -1,6 +1,7 @@
 import { ArrowUpRight, Cpu, Crosshair, ScanSearch, Satellite } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { useState, useEffect } from "react";
 
 const FEATURES = [
   {
@@ -30,6 +31,46 @@ const FEATURES = [
 ];
 
 export default function Index() {
+  const [eventData, setEventData] = useState<{title: string, category: string, date: string} | null>(null);
+
+  useEffect(() => {
+    fetch("https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=1")
+      .then(res => {
+        if (!res.ok) throw new Error("Network response was not ok");
+        return res.json();
+      })
+      .then(data => {
+        if (data && data.events && data.events.length > 0) {
+          const ev = data.events[0];
+          const title = ev.title || "Unknown Event";
+          const category = ev.categories?.[0]?.title || "Event";
+          const dateStr = ev.geometry?.[0]?.date;
+          
+          let date = "Recent";
+          if (dateStr) {
+            const d = new Date(dateStr);
+            // format like 03.18.25
+            date = `${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}.${String(d.getFullYear()).slice(2)}`;
+          }
+          
+          setEventData({ title, category, date });
+        }
+      })
+      .catch(err => {
+        console.error("Failed to fetch EONET event:", err);
+      });
+  }, []);
+
+  const displayEvent = eventData || {
+    title: "A storm seen from above",
+    category: "Pacific",
+    date: "03.18.25"
+  };
+
+  const displayDesc = eventData 
+    ? `An active ${displayEvent.category.toLowerCase()} event monitored by the Earth observation network.`
+    : "A wide atmospheric river crossing the Pacific, captured by the Orbital observation network.";
+
   return (
     <div className="overflow-hidden">
       <section className="relative flex min-h-[calc(100vh-64px)] items-center px-6 pt-16">
@@ -102,13 +143,12 @@ export default function Index() {
             <div className="absolute inset-0 opacity-40 [background-image:linear-gradient(hsl(var(--border)/0.35)_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border)/0.35)_1px,transparent_1px)] [background-size:48px_48px]" />
             <div className="absolute right-[12%] top-1/2 h-48 w-48 -translate-y-1/2 rounded-full border border-accent/40 bg-[radial-gradient(circle_at_35%_30%,hsl(var(--accent)/0.5),hsl(var(--secondary)/0.42)_48%,hsl(var(--background))_78%)] shadow-[inset_-28px_-18px_45px_hsl(var(--background)/0.8)] sm:h-64 sm:w-64" />
             <div className="absolute inset-x-0 bottom-0 bg-background/85 p-6 backdrop-blur-md sm:p-8">
-              <p className="label-micro mb-2">Pacific / 03.18.25</p>
+              <p className="label-micro mb-2">{displayEvent.category} / {displayEvent.date}</p>
               <h2 className="text-title font-semibold text-foreground">
-                A storm seen from above
+                {displayEvent.title}
               </h2>
               <p className="mt-2 max-w-xl text-caption text-muted-foreground">
-                A wide atmospheric river crossing the Pacific, captured by the
-                Orbital observation network.
+                {displayDesc}
               </p>
             </div>
           </div>
