@@ -1,0 +1,86 @@
+version: "3.8"
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+      args:
+        # Use localhost for the frontend so the browser can reach the exposed ports
+        - VITE_ORBIT_SERVICE_URL=http://localhost:8081
+        - VITE_AI_SERVICE_URL=http://localhost:8082
+    ports:
+      - "5173:5173"
+    networks:
+      - orbital-net
+    depends_on:
+      orbit-service:
+        condition: service_healthy
+      ai-inference-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  orbit-service:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - FRONTEND_ORIGIN=http://localhost:5173
+    networks:
+      - orbital-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  ai-inference-service:
+    build:
+      context: ./ai-inference-service
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    volumes:
+      - huggingface-cache:/app/.cache/huggingface
+    networks:
+      - orbital-net
+    healthcheck:
+      # We use python -c to test the health endpoint to avoid needing curl/wget in python slim image
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8082/health')\" || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 60s # Give the model time to load into memory
+
+  postgis:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: orbital_user
+      POSTGRES_PASSWORD: orbital_password
+      POSTGRES_DB: orbital_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - orbital-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orbital_user -d orbital_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  orbital-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  huggingface-cache:
