@@ -129,6 +129,7 @@ def run_change_detection(req: ScenarioRequest):
         
         # 2. Run inference (dummy approach: get embeddings and compute difference)
         # We use torch.no_grad() for inference
+        used_fallback_mask = False
         with torch.no_grad():
             # For AutoModel, the output might vary, but typically it returns a BaseModelOutput
             out_before = model(t_before)
@@ -142,7 +143,9 @@ def run_change_detection(req: ScenarioRequest):
                 diff = torch.norm(embed_b - embed_a, dim=-1) # (B, N)
             else:
                 # Fallback if the custom model output is different
+                logger.warning("Model output missing last_hidden_state. Using random fallback mask.")
                 diff = torch.rand(1, 14*14).to(device)
+                used_fallback_mask = True
                 
         # 3. Create a pseudo-mask image
         # Assuming 224x224 images and 16x16 patches, N is usually 14x14 = 196
@@ -155,7 +158,9 @@ def run_change_detection(req: ScenarioRequest):
             mask_tensor = F.interpolate(diff_grid, size=(224, 224), mode='nearest').squeeze()
         else:
             # Fallback random mask if shapes don't align cleanly
+            logger.warning(f"Embedding patch count ({num_patches}) is not a perfect square grid. Using random fallback mask.")
             mask_tensor = torch.rand(224, 224).to(device)
+            used_fallback_mask = True
             
         # Normalize to 0-255
         mask_min = mask_tensor.min()
@@ -171,14 +176,16 @@ def run_change_detection(req: ScenarioRequest):
         
         # 4. Compute metrics
         change_percentage = round(float((mask_norm > 128).mean() * 100), 2)
-        confidence = round(float(np.random.uniform(0.75, 0.98)), 3) # Dummy confidence
+        # Prithvi raw embeddings do not provide classification logits or softmax entropy for confidence score
+        confidence = None
         
         latency = (time.time() - start_time) * 1000
-        logger.info(f"Inference complete for {scenario}. Latency: {latency:.2f}ms")
+        logger.info(f"Inference complete for {scenario}. Latency: {latency:.2f}ms. Fallback mask used: {used_fallback_mask}")
         
         return {
             "change_percentage": change_percentage,
             "confidence": confidence,
+            "used_fallback_mask": used_fallback_mask,
             "mask_url": f"/masks/{mask_filename}",
             "latency_ms": latency
         }

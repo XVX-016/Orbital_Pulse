@@ -178,7 +178,7 @@ export async function fetchSatelliteCatalog(): Promise<SatelliteCatalogResult> {
   
   try {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 1500) : null;
 
     const res = await fetch(`${orbitServiceUrl}/api/tle`, {
       signal: controller?.signal,
@@ -204,7 +204,7 @@ export async function fetchSatelliteCatalog(): Promise<SatelliteCatalogResult> {
 
     return { satellites: parsed, source: "live" };
   } catch (err) {
-    console.error("Orbit service fetch error, using fallback hardcoded catalog:", err);
+    console.warn("Orbit service fetch error or timeout, using fallback hardcoded catalog:", err);
     return { satellites: parseTLECatalog(HARDCODED_TLE_STRING), source: "fallback" };
   }
 }

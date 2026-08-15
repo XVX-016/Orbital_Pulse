@@ -6,12 +6,12 @@ RUN corepack enable pnpm
 WORKDIR /app
 
 # Copy package files
-COPY package.json pnpm-lock.yaml* ./
+COPY package.json pnpm-lock.yaml ./
 
 # Install only production dependencies if possible, 
 # but since tsx is in devDependencies and we use it to run server,
 # we install all dependencies.
-RUN pnpm install
+RUN pnpm install --frozen-lockfile
 
 # Copy server source code
 # We also copy shared/ if it exists (as index.ts might import from shared)

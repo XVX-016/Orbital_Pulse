@@ -116,7 +116,7 @@ function ImageComparisonViewer({ scenario }: { scenario: Scenario }) {
 
 function ResultsPanel({ scenario }: { scenario: Scenario }) {
   const [isRunning, setIsRunning] = useState(false);
-  const [results, setResults] = useState<{ change_percentage: number, confidence: number } | null>(null);
+  const [results, setResults] = useState<{ change_percentage: number, confidence: number | null, used_fallback_mask?: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const runDetection = async () => {
@@ -198,7 +198,7 @@ function ResultsPanel({ scenario }: { scenario: Scenario }) {
           <div className="mt-6 flex items-center justify-between border-t border-border/60 pt-5">
             <span className="label-micro text-muted-foreground">Confidence score</span>
             <span className="text-mono-value text-caption font-semibold text-primary/80">
-              {results ? `${(results.confidence * 100).toFixed(1)}%` : "—"}
+              {results ? (results.confidence !== null ? `${(results.confidence * 100).toFixed(1)}%` : "N/A") : "—"}
             </span>
           </div>
         </div>

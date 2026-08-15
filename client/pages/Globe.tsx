@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { Viewer } from "resium";
 import { Ion, Color, Viewer as CesiumViewer, Cartesian3, CustomDataSource, HeadingPitchRange, ScreenSpaceEventHandler, ScreenSpaceEventType, WebMapTileServiceImageryProvider, createWorldImageryAsync } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
-import { fetchSatelliteCatalog, propagateSatellite, SatelliteData, SatellitePosition } from "@/lib/satellite-service";
+import { fetchSatelliteCatalog, parseTLECatalog, HARDCODED_TLE_STRING, propagateSatellite, SatelliteData, SatellitePosition } from "@/lib/satellite-service";
 
 if (import.meta.env.VITE_CESIUM_ION_TOKEN) {
   Ion.defaultAccessToken = import.meta.env.VITE_CESIUM_ION_TOKEN;
@@ -14,12 +14,12 @@ export default function Globe() {
   const [isPlaying, setIsPlaying] = useState(true);
   const [layersVisible, setLayersVisible] = useState(true);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
-  const [satellites, setSatellites] = useState<SatelliteData[]>([]);
+  const [satellites, setSatellites] = useState<SatelliteData[]>(() => parseTLECatalog(HARDCODED_TLE_STRING));
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedSat, setSelectedSat] = useState<SatelliteData | null>(null);
   const [selectedPos, setSelectedPos] = useState<SatellitePosition | null>(null);
-  const [catalogSource, setCatalogSource] = useState<string>("Orbit Service");
+  const [catalogSource, setCatalogSource] = useState<string>("Offline Catalog");
   const [error, setError] = useState<string | null>(null);
 
   const viewerRef = useRef<CesiumViewer | null>(null);
