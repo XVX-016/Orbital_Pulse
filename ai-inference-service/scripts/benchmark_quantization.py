@@ -153,9 +153,9 @@ def benchmark_model(
     results = {}
 
     for scenario, (before_t, after_t) in pairs.items():
-        # Warmup runs
+        # Warmup runs (results discarded — primes CPU cache and JIT)
         for _ in range(warmup):
-            _ = run_scenario_inference(model, before_t, after_t)
+            _diff, _chg = run_scenario_inference(model, before_t, after_t)
 
         # Timed runs
         latencies = []

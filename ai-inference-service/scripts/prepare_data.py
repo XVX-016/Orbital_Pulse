@@ -32,6 +32,9 @@ import os
 import sys
 from pathlib import Path
 
+# Root of the ai-inference-service directory, regardless of where the script is invoked from.
+_SERVICE_ROOT = Path(__file__).resolve().parent.parent
+
 import numpy as np
 from PIL import Image
 
@@ -310,20 +313,20 @@ def main():
     parser.add_argument(
         "--raw-dir",
         type=Path,
-        default=Path("raw_data"),
-        help="Directory containing raw source GeoTIFFs (default: raw_data/)",
+        default=_SERVICE_ROOT / "raw_data",
+        help="Directory containing raw source GeoTIFFs (default: <service-root>/raw_data/)",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data"),
-        help="Directory for preprocessed output GeoTIFFs (default: data/)",
+        default=_SERVICE_ROOT / "data",
+        help="Directory for preprocessed output GeoTIFFs (default: <service-root>/data/)",
     )
     parser.add_argument(
         "--preview-dir",
         type=Path,
-        default=Path("public/images"),
-        help="Directory for JPEG preview thumbnails (default: public/images/)",
+        default=_SERVICE_ROOT / "public" / "images",
+        help="Directory for JPEG preview thumbnails (default: <service-root>/public/images/)",
     )
     args = parser.parse_args()
 
