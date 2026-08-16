@@ -7,6 +7,9 @@ services:
         # Use localhost for the frontend so the browser can reach the exposed ports
         - VITE_ORBIT_SERVICE_URL=http://localhost:8081
         - VITE_AI_SERVICE_URL=http://localhost:8082
+        # Cesium Ion token — required for the 3D globe to render
+        # Set VITE_CESIUM_ION_TOKEN in your .env or pass it as a build arg
+        - VITE_CESIUM_ION_TOKEN=${VITE_CESIUM_ION_TOKEN}
     ports:
       - "5173:5173"
     networks:
@@ -17,10 +20,12 @@ services:
       ai-inference-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5173/"]
+      # nginx:alpine includes wget but not curl — use wget
+      test: ["CMD", "wget", "-qO-", "http://localhost:5173/"]
       interval: 10s
       timeout: 5s
       retries: 3
+      start_period: 5s
 
   orbit-service:
     build:
@@ -38,6 +43,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
   ai-inference-service:
     build:
@@ -47,21 +53,34 @@ services:
       - "8082:8082"
     volumes:
       - huggingface-cache:/app/.cache/huggingface
-      # Mount raw source data from host for preprocessing
+      # Bind mount: raw source GeoTIFFs from host (read-only)
+      # Place files at ai-inference-service/raw_data/{deforestation,disaster}/{before,after}.tif
       - ./ai-inference-service/raw_data:/app/raw_data:ro
-      # Mount preprocessed data — persists across container restarts
+      # Named volumes: preprocessed data and previews persist across restarts
+      # After 'docker compose down -v' these are wiped — re-run prepare_data.py inside the container
       - ai-data:/app/data
-      # Mount preview images so they persist and are available to the frontend
       - ai-previews:/app/public/images
     networks:
       - orbital-net
+    # Run prepare_data.py before starting uvicorn.
+    # If raw_data files are missing the script will log clearly and exit 0
+    # (uvicorn still starts so /health responds; /api/change-detection returns 503 with instructions).
+    command: >
+      sh -c "
+        echo '=== Orbital Pulse AI Service Startup ===' &&
+        echo 'Step 1: Attempting GeoTIFF preprocessing (requires raw_data/ files)...' &&
+        python scripts/prepare_data.py || echo 'prepare_data.py exited non-zero — raw data may be missing. Run it manually after placing source files.' &&
+        echo 'Step 2: Starting uvicorn...' &&
+        uvicorn main:app --host 0.0.0.0 --port 8082
+      "
     healthcheck:
-      # We use python -c to test the health endpoint to avoid needing curl/wget in python slim image
+      # python is available in the image; avoids needing curl/wget in the slim image
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8082/health')\" || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 5
-      start_period: 60s # Give the model time to load into memory
+      # 120s: 60s model load + up to 60s for prepare_data.py processing time
+      start_period: 120s
 
   postgis:
     image: postgis/postgis:16-3.4
@@ -80,6 +99,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
 
 networks:
   orbital-net:

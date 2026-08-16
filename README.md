@@ -168,108 +168,160 @@ python scripts/benchmark_quantization.py --iterations 5
 
 ## Docker Compose (Full Stack)
 
-### Clean Start
+> **Prerequisites**: Docker ≥ 24.0 and Docker Compose ≥ 2.20 must be installed and the Docker daemon must be running before any of the commands below.
 
-Remove any existing containers, volumes, and orphaned services:
+### Step 0: Environment Setup (Required)
+
+Before running Docker, ensure your `.env` is configured:
+
+```bash
+cp .env.example .env
+# Edit .env and set VITE_CESIUM_ION_TOKEN — the globe will not render without it
+```
+
+The `VITE_CESIUM_ION_TOKEN` is passed as a **Docker build arg** to the frontend service (baked into the Nginx bundle at image-build time). If it is missing, the CesiumJS globe will fail to initialize silently — there is no runtime injection.
+
+### Step 1: Place Raw GeoTIFF Data (Required for Change Detection)
+
+The AI inference service requires real satellite imagery. Place source files **on the host** at:
+
+```
+ai-inference-service/raw_data/
+├── deforestation/
+│   ├── before.tif    ← Sentinel-2 L2A, Rondônia region, ~2019
+│   └── after.tif     ← Sentinel-2 L2A, Rondônia region, ~2023
+└── disaster/
+    ├── before.tif    ← Pre-disaster imagery
+    └── after.tif     ← Post-disaster imagery
+```
+
+The `raw_data/` directory is bind-mounted read-only into the container. **The container will automatically run `prepare_data.py` at startup** to preprocess these files into the `ai-data` named volume. If files are missing, the service will still start and pass its healthcheck, but `/api/change-detection` will return HTTP 503 with an actionable error message.
+
+### Step 2: Clean Slate
+
+Remove all containers, named volumes (including cached model weights and preprocessed data), and orphaned services:
 
 ```bash
 docker compose down -v --remove-orphans
 ```
 
-### Build and Start
+> ⚠️ **`-v` wipes named volumes** — this includes `huggingface-cache` (model weights) and `ai-data` / `ai-previews` (preprocessed data). On the next `up --build`, the model will be re-downloaded and `prepare_data.py` will re-process raw data from the host bind mount. Omit `-v` to preserve cached weights across restarts.
+
+### Step 3: Build and Start
 
 ```bash
 docker compose up --build
 ```
 
-This starts all 4 services:
-- **Frontend** → `http://localhost:5173`
-- **Orbit Service** → `http://localhost:8081`
-- **AI Inference Service** → `http://localhost:8082`
-- **PostGIS** → `localhost:5432`
+This builds and starts all 4 services. **Startup is ordered by healthcheck dependencies**:
 
-> **Note**: The AI inference service takes ~60s to start (model loading). The health check has a `start_period: 60s` to accommodate this.
+```
+postgis ──healthcheck──► (no dependents at startup)
+orbit-service ──healthcheck──► frontend waits here
+ai-inference-service ──healthcheck──► frontend waits here
+                   └─ runs prepare_data.py, then uvicorn
+frontend ◄── starts only after orbit-service AND ai-inference-service are both healthy
+```
 
-### Volume Mounts
+Expected startup timeline:
+- `postgis`: healthy in ~15s
+- `orbit-service`: healthy in ~20–30s (fetches CelesTrak TLE data on first request)
+- `ai-inference-service`: healthy in **90–120s** (GDAL + model download/load from cache; `start_period: 120s`)
+- `frontend`: starts after both services are healthy
 
-| Volume | Purpose |
-|---|---|
-| `huggingface-cache` | Caches the Prithvi model weights between restarts |
-| `ai-data` | Preprocessed GeoTIFFs persist across container restarts |
-| `ai-previews` | JPEG preview images for frontend |
-| `pgdata` | PostGIS database files |
-| `./ai-inference-service/raw_data` → `/app/raw_data` (bind mount, read-only) | Raw source GeoTIFFs from host |
+### Step 4: Verify Each Service
 
-### Using Data with Docker
+#### 4a. Frontend — `http://localhost:5173`
 
-If you want to preprocess data **inside** the container:
+- Landing page loads
+- Navigation bar links to `/globe`, `/change-detection`, `/about` all work
+- No console errors about missing assets
 
+#### 4b. Globe / Orbit Service — `http://localhost:5173/globe`
+
+- 3D CesiumJS globe renders
+- **Status pill must show `"X satellites loaded (Orbit Service)"` — NOT `"Offline Catalog"`**
+- If it shows Offline Catalog, the orbit-service is not reachable. Diagnose:
+  ```bash
+  docker compose logs orbit-service          # check for fetch errors
+  docker compose ps                           # verify service is healthy
+  curl http://localhost:8081/health           # confirm it responds
+  curl http://localhost:8081/api/tle | head   # confirm TLE data is returned
+  ```
+  The `VITE_ORBIT_SERVICE_URL` is baked in at build time as `http://localhost:8081`. The browser fetches it from the host machine — this works as long as port 8081 is published (it is).
+
+#### 4c. Change Detection — `http://localhost:5173/change-detection`
+
+- Before/after image slider shows real satellite imagery (not blank)
+- Clicking **Run Detection** returns a `change_percentage` value (not a 503 or network error)
+
+**Verify data is mounted correctly inside the container:**
 ```bash
-# Start just the AI service
-docker compose up -d ai-inference-service
+# Check that prepare_data.py output landed in the named volume
+docker compose exec ai-inference-service ls -la data/deforestation/ data/disaster/
 
-# Run the preprocessing script inside the container
+# Check that JPEG previews are in the named volume
+docker compose exec ai-inference-service ls -la public/images/
+
+# Confirm the service reports data_ready: true
+curl http://localhost:8082/health
+# Expected: {"status":"ok","model":"ibm-nasa-geospatial/Prithvi-EO-1.0-100M","data_ready":true}
+```
+
+If `data_ready: false`:
+```bash
+# Re-run prepare_data.py inside the running container
 docker compose exec ai-inference-service python scripts/prepare_data.py
 
-# Restart to pick up the validated data
+# Restart to re-validate on startup (optional — the exec above is sufficient)
 docker compose restart ai-inference-service
 ```
 
-Or preprocess **locally** before building:
+#### 4d. PostGIS — `localhost:5432`
 
 ```bash
-cd ai-inference-service
-python scripts/prepare_data.py
-cd ..
-docker compose up --build
+# Requires psql installed locally, or use the container:
+docker compose exec postgis psql -U orbital_user -d orbital_db -c "SELECT PostGIS_Version();"
 ```
+
+Expected output: a PostGIS version string like `3.4 USE_GEOS=1 USE_PROJ=1 USE_STATS=1`.
+
+### Verify Healthcheck-Based Startup Ordering
+
+To confirm the `depends_on: condition: service_healthy` ordering actually held during startup (not just that everything eventually came up), check container creation timestamps:
+
+```bash
+docker compose ps --format "table {{.Name}}\t{{.Status}}\t{{.CreatedAt}}"
+```
+
+The `frontend` container's `CreatedAt` timestamp must be **later** than both `orbit-service` and `ai-inference-service` — it cannot start until both report healthy. You can also inspect the ordering in the startup log stream: `frontend` will not appear until after `orbit-service ... healthy` and `ai-inference-service ... healthy` are both logged.
+
+### Volume Mounts Reference
+
+| Volume | Type | Purpose |
+|---|---|---|
+| `pgdata` | Named | PostGIS database files |
+| `huggingface-cache` | Named | Prithvi model weights (avoid re-downloading) |
+| `ai-data` | Named | Preprocessed 6-band 224×224 GeoTIFFs (output of `prepare_data.py`) |
+| `ai-previews` | Named | JPEG previews for the frontend slider |
+| `./ai-inference-service/raw_data` | Bind (ro) | Raw source GeoTIFFs from host — **must exist before `up`** |
 
 ---
 
 ## Verification Checklist
 
-After running `docker compose up --build`, verify each service:
+After `docker compose up --build`, confirm:
 
-### 1. Frontend (`http://localhost:5173`)
+- [ ] `http://localhost:5173` — landing page loads
+- [ ] `http://localhost:5173/globe` — globe renders, pill shows **Orbit Service** (not Offline Catalog)
+- [ ] `http://localhost:5173/change-detection` — slider shows real imagery; Run Detection returns a result
+- [ ] `http://localhost:5173/about` — About page with roadmap timeline loads
+- [ ] `curl http://localhost:8081/health` → `{"status":"ok"}`
+- [ ] `curl http://localhost:8082/health` → `{"status":"ok","data_ready":true}`
+- [ ] `docker compose exec postgis psql -U orbital_user -d orbital_db -c "SELECT PostGIS_Version();"` — returns version string
+- [ ] `docker compose ps` — all 4 services show `healthy` status
 
-- [ ] Landing page loads at `http://localhost:5173`
-- [ ] Navigation works (Globe, Change Detection, About links)
-- [ ] No console errors related to missing assets
 
-### 2. Globe Page — Live TLE Data (`http://localhost:5173/globe`)
-
-- [ ] 3D CesiumJS globe renders
-- [ ] **The status pill shows "X satellites loaded (Orbit Service)"** — NOT "Offline Catalog"
-- [ ] If the pill says "Offline Catalog", the orbit-service is not reachable from the frontend
-- [ ] Satellites appear as points on the globe
-- [ ] Search and Inspector panel work
-
-**Troubleshooting "Offline Catalog"**:
-- Check orbit-service logs: `docker compose logs orbit-service`
-- The frontend fetches from `VITE_ORBIT_SERVICE_URL` (baked in at build time)
-- In Docker, this is set to `http://localhost:8081` in `docker-compose.yml` build args
-- CelesTrak may rate-limit or block requests — check for 429/503 errors in orbit-service logs
-
-### 3. Change Detection (`http://localhost:5173/change-detection`)
-
-- [ ] Before/after image slider shows real satellite imagery previews (not blank/placeholder)
-- [ ] Clicking "Run Detection" returns a result (not an error)
-- [ ] Result shows `change_percentage` and a mask URL
-- [ ] If `used_fallback_mask: true`, the model's output format doesn't match the expected embedding shape (non-critical)
-
-**Troubleshooting**:
-- If images are blank: check that `prepare_data.py` was run and JPEG previews exist in `public/images/`
-- If "AI inference service is unreachable": check `docker compose logs ai-inference-service`
-- If "Preprocessed data is not available": run `prepare_data.py` first
-- If "Model not loaded": the Prithvi model failed to download — check HuggingFace connectivity
-
-### 4. PostGIS (`localhost:5432`)
-
-- [ ] Database is reachable:
-  ```bash
-  psql -h localhost -p 5432 -U orbital_user -d orbital_db -c "SELECT PostGIS_Version();"
-  ```
-  (Password: `orbital_password`)
 
 ---
 
