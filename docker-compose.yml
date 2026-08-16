@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   frontend:
     build:
@@ -49,6 +47,12 @@ services:
       - "8082:8082"
     volumes:
       - huggingface-cache:/app/.cache/huggingface
+      # Mount raw source data from host for preprocessing
+      - ./ai-inference-service/raw_data:/app/raw_data:ro
+      # Mount preprocessed data — persists across container restarts
+      - ai-data:/app/data
+      # Mount preview images so they persist and are available to the frontend
+      - ai-previews:/app/public/images
     networks:
       - orbital-net
     healthcheck:
@@ -84,3 +88,5 @@ networks:
 volumes:
   pgdata:
   huggingface-cache:
+  ai-data:
+  ai-previews:

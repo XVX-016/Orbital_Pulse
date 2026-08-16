@@ -22,7 +22,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 ENV HF_HOME=/app/.cache/huggingface
 RUN python -c "from transformers import AutoModel; AutoModel.from_pretrained('ibm-nasa-geospatial/Prithvi-EO-1.0-100M', trust_remote_code=True)" || true
 
+# Copy application code and scripts
 COPY . .
+
+# Ensure output directories exist (they may be overridden by volume mounts)
+RUN mkdir -p data/deforestation data/disaster public/masks public/images raw_data
 
 EXPOSE 8082
 

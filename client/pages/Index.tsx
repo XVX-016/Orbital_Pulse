@@ -75,20 +75,21 @@ export default function Index() {
   return (
     <div className="overflow-hidden">
       {/* Hero Section: Pointer-events-none on section container, pointer-events-auto on interactive content */}
-      <section className="pointer-events-none relative flex min-h-[calc(100vh-64px)] items-center px-6 pt-16">
-        <div className="relative z-10 mx-auto w-full max-w-[1400px]">
-          <div className="pointer-events-auto max-w-xl">
-            <p className="label-micro mb-6">Earth observation, reimagined</p>
-            <h1 className="max-w-2xl text-hero font-semibold leading-[1.04] text-foreground sm:text-[56px]">
-              Track Earth
-              <br />
-              from orbit.
+      <section className="pointer-events-none relative flex min-h-[calc(100vh-64px)] items-end justify-center px-6 pb-24 sm:pb-28 pt-16">
+        {/* Soft background brightening overlay */}
+        <div className="absolute inset-0 bg-gradient-to-b from-primary/10 via-white/5 to-transparent backdrop-brightness-110 pointer-events-none" />
+
+        <div className="relative z-10 mx-auto w-full max-w-[1400px] flex justify-center">
+          <div className="pointer-events-auto max-w-2xl text-center flex flex-col items-center bg-black/45 backdrop-blur-xl border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl">
+            <p className="label-micro mb-4 text-primary-foreground/90 font-semibold tracking-wider">Earth observation, reimagined</p>
+            <h1 className="max-w-2xl text-hero font-bold leading-[1.04] text-foreground sm:text-[56px] drop-shadow-md">
+              Track Earth from orbit.
             </h1>
-            <p className="mt-6 max-w-md text-body text-muted-foreground">
+            <p className="mt-5 max-w-lg text-body text-muted-foreground font-medium leading-relaxed mx-auto">
               One living view of our planet, powered by the satellites and AI that watch over it.
             </p>
-            <div className="mt-8">
-              <Button asChild size="lg">
+            <div className="mt-8 flex justify-center">
+              <Button asChild size="lg" className="shadow-lg hover:shadow-primary/20">
                 <Link to="/globe">
                   Launch Globe
                   <ArrowUpRight aria-hidden="true" />
@@ -98,8 +99,12 @@ export default function Index() {
           </div>
         </div>
 
-        <p className="pointer-events-auto absolute bottom-8 left-6 label-micro">Orbital / 01</p>
-        <p className="pointer-events-auto absolute bottom-8 right-6 label-micro">Live planetary view</p>
+        <p className="pointer-events-auto absolute bottom-8 left-6 label-micro text-foreground/80 bg-black/40 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-sm">
+          Orbital / 01
+        </p>
+        <p className="pointer-events-auto absolute bottom-8 right-6 label-micro text-foreground/80 bg-black/40 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-sm">
+          Live planetary view
+        </p>
       </section>
 
       {/* Feature Cards Grid: Fully Opaque Solid Background */}

@@ -5,6 +5,7 @@ import logging
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -25,16 +26,34 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AI Inference Service (Prithvi-100M)")
 
+# CORS — allow the frontend (running on a different port/origin) to load images and call APIs
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, restrict to the frontend origin
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 MODEL_ID = "ibm-nasa-geospatial/Prithvi-EO-1.0-100M"
 model = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Track whether real preprocessed data is available
+_data_ready = False
+
+EXPECTED_DATA_FILES = [
+    "data/deforestation/before.tif",
+    "data/deforestation/after.tif",
+    "data/disaster/before.tif",
+    "data/disaster/after.tif",
+]
 
 class ScenarioRequest(BaseModel):
     scenario: str
 
 @app.on_event("startup")
 async def startup_event():
-    global model
+    global model, _data_ready
     logger.info(f"Loading model {MODEL_ID} into memory on {device}...")
     try:
         # Load the model. trust_remote_code may be needed for custom architectures.
@@ -47,60 +66,90 @@ async def startup_event():
         # We don't exit so the health check can report the failure or the endpoint can return 500
         model = None
 
-    # Ensure data directories exist
+    # Ensure output directories exist
     os.makedirs("data/deforestation", exist_ok=True)
     os.makedirs("data/disaster", exist_ok=True)
     os.makedirs("public/masks", exist_ok=True)
-    
-    # Mount the public masks directory to serve static images
-    app.mount("/masks", StaticFiles(directory="public/masks"), name="masks")
+    os.makedirs("public/images", exist_ok=True)
 
-    # Generate dummy TIF files if they don't exist (so the endpoint doesn't crash)
-    _ensure_dummy_tif("data/deforestation/before.tif")
-    _ensure_dummy_tif("data/deforestation/after.tif")
-    _ensure_dummy_tif("data/disaster/before.tif")
-    _ensure_dummy_tif("data/disaster/after.tif")
-
-def _ensure_dummy_tif(filepath: str):
-    if not os.path.exists(filepath):
-        logger.info(f"Creating dummy TIFF image: {filepath}")
-        if rasterio:
-            # Create a dummy 6-band (Prithvi input) 224x224 TIFF
-            data = np.random.rand(6, 224, 224).astype(np.float32)
-            with rasterio.open(
-                filepath, 'w', driver='GTiff',
-                height=224, width=224, count=6, dtype='float32'
-            ) as dst:
-                dst.write(data)
+    # ── Strict data validation (NO silent random-noise fallback) ──────────
+    missing_files = [f for f in EXPECTED_DATA_FILES if not os.path.exists(f)]
+    if missing_files:
+        logger.critical("=" * 60)
+        logger.critical("MISSING PREPROCESSED DATA FILES")
+        logger.critical("=" * 60)
+        for f in missing_files:
+            logger.critical(f"  ✗ {f}")
+        logger.critical("")
+        logger.critical("The AI inference service requires real preprocessed GeoTIFF data.")
+        logger.critical("Run the data preparation script first:")
+        logger.critical("  python scripts/prepare_data.py --raw-dir raw_data/ --output-dir data/")
+        logger.critical("")
+        logger.critical("See README.md for instructions on sourcing Sentinel-2 / xBD imagery.")
+        logger.critical("The /api/change-detection endpoint will return 503 until data is provided.")
+        logger.critical("=" * 60)
+        _data_ready = False
+    else:
+        # Validate that existing files are real GeoTIFFs, not zero-byte or corrupted
+        all_valid = True
+        for f in EXPECTED_DATA_FILES:
+            file_size = os.path.getsize(f)
+            if file_size < 1024:
+                logger.warning(f"  ⚠ Suspiciously small data file ({file_size} bytes): {f}")
+            if rasterio:
+                try:
+                    with rasterio.open(f) as src:
+                        if src.count < 6:
+                            logger.warning(f"  ⚠ {f} has {src.count} bands (expected 6). Model may produce unexpected results.")
+                        if src.width != 224 or src.height != 224:
+                            logger.warning(f"  ⚠ {f} is {src.width}×{src.height} (expected 224×224). Will be resized during inference.")
+                except Exception as e:
+                    logger.critical(f"  ✗ Cannot read {f}: {e}")
+                    all_valid = False
+        _data_ready = all_valid
+        if all_valid:
+            logger.info("✓ All preprocessed data files validated and ready.")
         else:
-            logger.warning("rasterio not installed, skipping dummy TIF creation")
+            logger.critical("Some data files are corrupted. Re-run prepare_data.py.")
+
+    # Mount static file directories
+    app.mount("/masks", StaticFiles(directory="public/masks"), name="masks")
+    app.mount("/images", StaticFiles(directory="public/images"), name="images")
 
 @app.get("/health")
 def health_check():
     if model is None:
         return JSONResponse(status_code=503, content={"status": "error", "message": "Model not loaded"})
-    return {"status": "ok", "model": MODEL_ID}
+    return {
+        "status": "ok",
+        "model": MODEL_ID,
+        "data_ready": _data_ready,
+    }
 
 def load_image_tensor(filepath: str) -> torch.Tensor:
-    """Loads a TIFF file and returns a dummy tensor formatted for Prithvi.
-       Prithvi typically expects shape (B, C, T, H, W) where C=6.
+    """Loads a preprocessed 6-band 224×224 GeoTIFF and returns a tensor for Prithvi.
+       Prithvi expects shape (B, C, T, H, W) where C=6.
+       
+       Raises RuntimeError if rasterio is not installed or the file is unreadable.
     """
     if not rasterio:
-        # Return random noise if rasterio is missing
-        return torch.rand(1, 6, 1, 224, 224).to(device)
-        
+        raise RuntimeError(
+            "rasterio is not installed. Cannot load GeoTIFF data. "
+            "Install with: pip install rasterio"
+        )
+
     with rasterio.open(filepath) as src:
         # Shape: (C, H, W)
         data = src.read()
     
     # Convert to torch tensor, add Batch and Time dimensions -> (1, C, 1, H, W)
-    tensor = torch.from_numpy(data).unsqueeze(0).unsqueeze(2).to(device)
+    tensor = torch.from_numpy(data).float().unsqueeze(0).unsqueeze(2).to(device)
     
-    # Resize or crop to 224x224 (required for typical ViT patches)
-    # For dummy purposes, we just interpolate if necessary
+    # Resize to 224x224 if the preprocessed data isn't already that size
     import torch.nn.functional as F
     tensor = tensor.squeeze(2) # (B, C, H, W)
-    tensor = F.interpolate(tensor, size=(224, 224), mode='bilinear')
+    if tensor.shape[2] != 224 or tensor.shape[3] != 224:
+        tensor = F.interpolate(tensor, size=(224, 224), mode='bilinear', align_corners=False)
     tensor = tensor.unsqueeze(2) # (B, C, 1, H, W)
     
     return tensor
@@ -109,7 +158,17 @@ def load_image_tensor(filepath: str) -> torch.Tensor:
 def run_change_detection(req: ScenarioRequest):
     if model is None:
         raise HTTPException(status_code=503, detail="Model is not loaded and unavailable.")
-        
+
+    if not _data_ready:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Preprocessed data is not available. "
+                "Run 'python scripts/prepare_data.py' to prepare real GeoTIFF imagery before using this endpoint. "
+                "See README.md for data sourcing instructions."
+            ),
+        )
+
     scenario = req.scenario
     if scenario not in ["deforestation", "disaster"]:
         raise HTTPException(status_code=400, detail="Invalid scenario. Must be 'deforestation' or 'disaster'.")
@@ -118,7 +177,10 @@ def run_change_detection(req: ScenarioRequest):
     after_path = f"data/{scenario}/after.tif"
     
     if not os.path.exists(before_path) or not os.path.exists(after_path):
-        raise HTTPException(status_code=404, detail=f"Image pairs for scenario '{scenario}' not found.")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Image pairs for scenario '{scenario}' not found at {before_path} and {after_path}.",
+        )
         
     start_time = time.time()
     
