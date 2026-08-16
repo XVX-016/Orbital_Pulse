@@ -119,11 +119,28 @@ export default function GlobeCanvas() {
           credit: "NASA GIBS",
         });
 
+        // Add tile error listener for runtime network failure fallback
+        let hasFallenBack = false;
+        gibsProvider.errorEvent.addEventListener(async () => {
+          if (!hasFallenBack) {
+            hasFallenBack = true;
+            console.warn("NASA GIBS tile loading failed/slow, falling back to Cesium World Imagery");
+            try {
+              viewer.imageryLayers.removeAll();
+              const fallbackProvider = await createWorldImageryAsync();
+              viewer.imageryLayers.addImageryProvider(fallbackProvider);
+            } catch (fallbackErr) {
+              console.error("Cesium World Imagery fallback failed:", fallbackErr);
+            }
+          }
+        });
+
         viewer.imageryLayers.removeAll();
         viewer.imageryLayers.addImageryProvider(gibsProvider);
       } catch (err) {
         console.error("Failed to load NASA GIBS, falling back to World Imagery", err);
         try {
+          viewer.imageryLayers.removeAll();
           const fallbackProvider = await createWorldImageryAsync();
           viewer.imageryLayers.addImageryProvider(fallbackProvider);
         } catch (e) {

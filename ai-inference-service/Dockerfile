@@ -25,7 +25,7 @@ RUN python -c "from transformers import AutoModel; AutoModel.from_pretrained('ib
 # Copy application code and scripts
 COPY . .
 
-# Ensure output directories exist (they may be overridden by volume mounts)
+# Ensure output and asset directories exist
 RUN mkdir -p data/deforestation data/disaster public/masks public/images raw_data
 
 EXPOSE 8082
