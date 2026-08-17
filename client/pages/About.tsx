@@ -96,7 +96,7 @@ export default function About() {
       <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-primary/5 rounded-full blur-[140px] pointer-events-none" />
 
       {/* Main Content Container matching landing page text background */}
-      <div className="mx-auto max-w-[1050px] relative z-10 rounded-2xl border border-white/10 bg-black/45 p-8 sm:p-12 backdrop-blur-xl shadow-2xl space-y-14">
+      <div className="mx-auto max-w-[1050px] relative z-10 rounded-2xl border border-white/10 bg-[#121212]/90 p-8 sm:p-12 shadow-2xl space-y-14">
         
         {/* Section 1: Project Overview */}
         <section className="max-w-3xl">
@@ -125,7 +125,7 @@ export default function About() {
               return (
                 <div
                   key={item.name}
-                  className="group rounded-xl border border-white/10 bg-black/40 p-5 backdrop-blur-md transition-all duration-200 hover:border-primary/50 hover:bg-black/60"
+                  className="group rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818]"
                 >
                   <div className="flex items-center gap-3 mb-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent/20 text-accent transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
@@ -188,7 +188,7 @@ export default function About() {
                   </div>
 
                   {/* Content Container */}
-                  <div className="rounded-xl border border-white/10 bg-black/40 p-6 backdrop-blur-md shadow-sm transition-all duration-200 group-hover:border-white/20 group-hover:bg-black/60">
+                  <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-6 shadow-sm transition-all duration-200 group-hover:border-white/20 group-hover:bg-[#181818]">
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                       <div className="flex items-center gap-3">
                         <span className="text-mono-value text-xs font-semibold text-muted-foreground">

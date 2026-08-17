@@ -21,10 +21,8 @@ export default function Navbar() {
   return (
     <header
       className={cn(
-        "pointer-events-none fixed top-0 left-0 right-0 z-50 h-16 transition-colors duration-200",
-        scrolled
-          ? "bg-background/90 border-b border-border backdrop-blur-md"
-          : "bg-transparent border-b border-transparent",
+        "pointer-events-none fixed top-0 left-0 right-0 z-50 h-16 transition-all duration-200 bg-[#0A0A0A]/90 backdrop-blur-md border-b",
+        scrolled ? "border-border shadow-md" : "border-white/10"
       )}
     >
       <div className="pointer-events-auto mx-auto flex h-full max-w-[1400px] items-center justify-between px-6">
@@ -33,7 +31,7 @@ export default function Navbar() {
           className="flex items-center gap-2 text-body font-semibold tracking-[0.02em] text-foreground"
         >
           <span className="h-2 w-2 rounded-full bg-primary" aria-hidden />
-          ORBITAL
+          ORBITAL PULSE
         </Link>
 
         <nav className="flex items-center gap-8">

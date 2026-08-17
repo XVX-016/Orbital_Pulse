@@ -26,6 +26,7 @@ export default function GlobeCanvas() {
   const { viewerRef, dataSourceRef, flyToSatellite } = useGlobe();
   const { pathname } = useLocation();
   const isGlobe = pathname === "/globe";
+  const isCanvasVisible = pathname === "/" || pathname === "/globe";
 
   // Control camera interactivity & DOM pointer-events based on active route (/globe vs homepage/other routes)
   useEffect(() => {
@@ -65,7 +66,7 @@ export default function GlobeCanvas() {
     scene.screenSpaceCameraController.enableLook = isGlobeRoute;
     scene.screenSpaceCameraController.enableInputs = isGlobeRoute;
 
-    // Set initial camera position based on active route immediately upon canvas ready
+    // Initial camera setup per route — distinct altitudes give flyToView() real delta to animate
     if (isGlobeRoute) {
       viewer.camera.setView({
         destination: Cartesian3.fromDegrees(0.0, 20.0, 12500000),
@@ -77,10 +78,10 @@ export default function GlobeCanvas() {
       });
     } else {
       viewer.camera.setView({
-        destination: Cartesian3.fromDegrees(-65.0, 12.0, 9200000),
+        destination: Cartesian3.fromDegrees(0.0, 20.0, 18000000),
         orientation: {
-          heading: 5.80,
-          pitch: -1.38,
+          heading: 0.0,
+          pitch: -Math.PI / 2,
           roll: 0.0,
         },
       });
@@ -119,12 +120,37 @@ export default function GlobeCanvas() {
           credit: "NASA GIBS",
         });
 
-        // Add tile error listener for runtime network failure fallback
+        // Track tile errors — only fall back on sustained failures, not per-tile noise
         let hasFallenBack = false;
-        gibsProvider.errorEvent.addEventListener(async () => {
-          if (!hasFallenBack) {
+        let tileErrorCount = 0;
+        let errorWindowStart = Date.now();
+        const ERROR_THRESHOLD = 5;
+        const ERROR_WINDOW_MS = 30_000; // 30 seconds
+
+        gibsProvider.errorEvent.addEventListener(async (error: unknown) => {
+          if (hasFallenBack) return;
+
+          // Log every error so we can diagnose what GIBS is actually returning
+          console.warn("[GIBS tile error]", {
+            message: error instanceof Error ? error.message : String(error),
+            error,
+            timestamp: new Date().toISOString(),
+          });
+
+          // Reset counter if outside the rolling window
+          const now = Date.now();
+          if (now - errorWindowStart > ERROR_WINDOW_MS) {
+            tileErrorCount = 0;
+            errorWindowStart = now;
+          }
+
+          tileErrorCount++;
+
+          if (tileErrorCount >= ERROR_THRESHOLD) {
             hasFallenBack = true;
-            console.warn("NASA GIBS tile loading failed/slow, falling back to Cesium World Imagery");
+            console.warn(
+              `NASA GIBS hit ${ERROR_THRESHOLD} tile errors within ${ERROR_WINDOW_MS / 1000}s — falling back to Cesium World Imagery`
+            );
             try {
               viewer.imageryLayers.removeAll();
               const fallbackProvider = await createWorldImageryAsync();
@@ -177,6 +203,7 @@ export default function GlobeCanvas() {
         "fixed inset-0 z-0 [&_.cesium-viewer-bottom]:hidden",
         isGlobe ? "pointer-events-auto" : "pointer-events-none"
       )}
+      style={{ display: isCanvasVisible ? undefined : "none" }}
     >
       <Viewer
         full

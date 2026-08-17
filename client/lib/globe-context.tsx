@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
-import { Viewer as CesiumViewer, CustomDataSource, Cartesian3, HeadingPitchRange, Color } from "cesium";
+import { Viewer as CesiumViewer, CustomDataSource, Cartesian3, HeadingPitchRange, Color, EasingFunction } from "cesium";
 import { fetchSatelliteCatalog, parseTLECatalog, HARDCODED_TLE_STRING, propagateSatellite, SatelliteData, SatellitePosition } from "@/lib/satellite-service";
 
 interface GlobeContextType {
@@ -194,13 +194,14 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
 
     if (preset === "home") {
       viewer.camera.flyTo({
-        destination: Cartesian3.fromDegrees(-65.0, 12.0, 9200000),
+        destination: Cartesian3.fromDegrees(0.0, 20.0, 18000000),
         orientation: {
-          heading: 5.80,
-          pitch: -1.38,
+          heading: 0.0,
+          pitch: -Math.PI / 2,
           roll: 0.0,
         },
         duration: 2.0,
+        easingFunction: EasingFunction.QUADRATIC_IN_OUT,
       });
     } else if (preset === "globe") {
       viewer.camera.flyTo({
@@ -211,6 +212,7 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
           roll: 0.0,
         },
         duration: 2.0,
+        easingFunction: EasingFunction.QUADRATIC_IN_OUT,
       });
     }
   }, []);

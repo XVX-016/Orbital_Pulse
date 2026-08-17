@@ -1,7 +1,7 @@
-import { ArrowUpRight, Cpu, Crosshair, ScanSearch, Satellite } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, Cpu, Crosshair, Flame, Globe2, Radio, ScanSearch, Satellite, Thermometer, Waves, Wind } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 
 const FEATURES = [
   {
@@ -30,62 +30,117 @@ const FEATURES = [
   },
 ];
 
+interface EonetEventItem {
+  title: string;
+  category: string;
+  date: string;
+  id: string;
+}
+
+function getCategoryIcon(category: string) {
+  const c = category.toLowerCase();
+  if (c.includes("fire") || c.includes("wildfire")) return Flame;
+  if (c.includes("storm") || c.includes("cyclone") || c.includes("typhoon") || c.includes("hurricane")) return Wind;
+  if (c.includes("flood") || c.includes("water") || c.includes("sea")) return Waves;
+  if (c.includes("temp") || c.includes("heat") || c.includes("volcano")) return Thermometer;
+  return Globe2;
+}
+
 export default function Index() {
-  const [eventData, setEventData] = useState<{ title: string; category: string; date: string } | null>(null);
+  const [events, setEvents] = useState<EonetEventItem[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isLive, setIsLive] = useState(false);
 
   useEffect(() => {
-    fetch("https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=1")
+    fetch("https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=6")
       .then((res) => {
         if (!res.ok) throw new Error("Network response was not ok");
         return res.json();
       })
       .then((data) => {
         if (data && data.events && data.events.length > 0) {
-          const ev = data.events[0];
-          const title = ev.title || "Unknown Event";
-          const category = ev.categories?.[0]?.title || "Event";
-          const dateStr = ev.geometry?.[0]?.date;
-
-          let date = "Recent";
-          if (dateStr) {
-            const d = new Date(dateStr);
-            date = `${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}.${String(
-              d.getFullYear()
-            ).slice(2)}`;
-          }
-
-          setEventData({ title, category, date });
+          const parsed: EonetEventItem[] = data.events.map((ev: any) => {
+            const title = ev.title || "Unknown Event";
+            const category = ev.categories?.[0]?.title || "Natural Event";
+            const dateStr = ev.geometry?.[0]?.date;
+            let date = "Recent";
+            if (dateStr) {
+              const d = new Date(dateStr);
+              date = `${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}.${String(
+                d.getFullYear()
+              ).slice(2)}`;
+            }
+            return { title, category, date, id: ev.id || title };
+          });
+          setEvents(parsed);
+          setIsLive(true);
         }
       })
       .catch((err) => {
-        console.error("Failed to fetch EONET event:", err);
+        console.error("Failed to fetch EONET events:", err);
       });
   }, []);
 
-  const displayEvent = eventData || {
-    title: "A storm seen from above",
-    category: "Pacific",
-    date: "03.18.25",
+  const fallbackEvents: EonetEventItem[] = useMemo(
+    () => [
+      {
+        title: "Pacific Atmospheric River & Cyclone Track",
+        category: "Severe Storms",
+        date: "03.18.25",
+        id: "fallback-1",
+      },
+      {
+        title: "Sub-Saharan Thermal Anomaly Cluster",
+        category: "Wildfires",
+        date: "03.15.25",
+        id: "fallback-2",
+      },
+      {
+        title: "North Atlantic Sea Surface Temperature Drift",
+        category: "Sea and Lake Ice",
+        date: "03.10.25",
+        id: "fallback-3",
+      },
+    ],
+    []
+  );
+
+  const activeEvents = events.length > 0 ? events : fallbackEvents;
+  const currentEvent = activeEvents[currentIndex % activeEvents.length];
+  const CategoryIcon = getCategoryIcon(currentEvent.category);
+
+  const handlePrev = () => {
+    setCurrentIndex((prev) => (prev === 0 ? activeEvents.length - 1 : prev - 1));
   };
 
-  const displayDesc = eventData
-    ? `An active ${displayEvent.category.toLowerCase()} event monitored by the Earth observation network.`
-    : "A wide atmospheric river crossing the Pacific, captured by the Orbital observation network.";
+  const handleNext = () => {
+    setCurrentIndex((prev) => (prev + 1) % activeEvents.length);
+  };
 
   return (
     <div className="overflow-hidden">
-      {/* Hero Section: Pointer-events-none on section container, pointer-events-auto on interactive content */}
+      {/* Hero Section: Centered text with subtle lower-half vignette overlay */}
       <section className="pointer-events-none relative flex min-h-[calc(100vh-64px)] items-end justify-center px-6 pb-24 sm:pb-28 pt-16">
-        {/* Soft background brightening overlay */}
-        <div className="absolute inset-0 bg-gradient-to-b from-primary/10 via-white/5 to-transparent backdrop-brightness-110 pointer-events-none" />
+        {/* Subtle full-width vignette overlay across lower half for background contrast */}
+        <div
+          className="absolute inset-0 pointer-events-none z-0"
+          style={{
+            background: "linear-gradient(to top, rgba(10,10,10,0.6) 0%, transparent 55%)",
+          }}
+        />
 
-        <div className="relative z-10 mx-auto w-full max-w-[1400px] flex justify-center">
-          <div className="pointer-events-auto max-w-2xl text-center flex flex-col items-center bg-black/45 backdrop-blur-xl border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl">
-            <p className="label-micro mb-4 text-primary-foreground/90 font-semibold tracking-wider">Earth observation, reimagined</p>
-            <h1 className="max-w-2xl text-hero font-bold leading-[1.04] text-foreground sm:text-[56px] drop-shadow-md">
+        <div className="relative z-10 w-full max-w-[1400px] mx-auto flex justify-center">
+          <div className="pointer-events-auto max-w-2xl text-center flex flex-col items-center">
+            <p className="label-micro mb-4 text-primary-foreground/90 font-semibold tracking-wider drop-shadow-sm">
+              Earth observation, reimagined
+            </p>
+            <h1
+              className="text-hero font-bold leading-[1.04] text-foreground sm:text-[56px]"
+              style={{ textShadow: "0 2px 16px rgba(0,0,0,0.7)" }}
+            >
               Track Earth from orbit.
             </h1>
-            <p className="mt-5 max-w-lg text-body text-muted-foreground font-medium leading-relaxed mx-auto">
+            <p className="mt-5 max-w-lg text-body text-muted-foreground font-medium leading-relaxed drop-shadow">
               One living view of our planet, powered by the satellites and AI that watch over it.
             </p>
             <div className="mt-8 flex justify-center">
@@ -98,13 +153,6 @@ export default function Index() {
             </div>
           </div>
         </div>
-
-        <p className="pointer-events-auto absolute bottom-8 left-6 label-micro text-foreground/80 bg-black/40 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-sm">
-          Orbital / 01
-        </p>
-        <p className="pointer-events-auto absolute bottom-8 right-6 label-micro text-foreground/80 bg-black/40 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-sm">
-          Live planetary view
-        </p>
       </section>
 
       {/* Feature Cards Grid: Fully Opaque Solid Background */}
@@ -130,23 +178,70 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Featured Event Section: Fully Opaque Solid Background */}
+      {/* Featured Event Section: Clean Card with Category Icon & Functional Prev/Next Navigation */}
       <section className="relative z-10 bg-background px-6 py-16">
         <div className="mx-auto max-w-[1400px]">
           <div className="mb-6 flex items-center justify-between">
-            <p className="label-micro">Featured Earth Event</p>
-            <p className="label-micro">02 / 04</p>
+            <div className="flex items-center gap-3">
+              <p className="label-micro">Featured Earth Event</p>
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-[#121212] px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+                <Radio className="h-3 w-3 text-emerald-400 animate-pulse" />
+                {isLive ? "Live via NASA EONET" : "NASA EONET Feed"}
+              </span>
+            </div>
+
+            {/* Functional Prev / Next Controls & Index Counter */}
+            <div className="flex items-center gap-2">
+              <span className="label-micro mr-2">
+                0{currentIndex + 1} / 0{activeEvents.length}
+              </span>
+              <button
+                type="button"
+                onClick={handlePrev}
+                aria-label="Previous event"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-[#121212] text-foreground transition-colors hover:border-primary hover:bg-[#181818]"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleNext}
+                aria-label="Next event"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-[#121212] text-foreground transition-colors hover:border-primary hover:bg-[#181818]"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
-          <div className="relative min-h-[280px] overflow-hidden rounded-lg border border-border bg-card sm:min-h-[360px]">
-            <div className="absolute inset-0 bg-[linear-gradient(135deg,hsl(var(--card))_0%,hsl(var(--secondary))_50%,hsl(var(--accent)/0.3)_100%)] opacity-90" />
-            <div className="absolute inset-0 opacity-20 [background-image:linear-gradient(hsl(var(--border))_1px,transparent_1px),linear-gradient(90deg,hsl(var(--border))_1px,transparent_1px)] [background-size:48px_48px]" />
-            <div className="absolute right-[10%] top-1/2 h-48 w-48 -translate-y-1/2 rounded-full border border-accent/40 bg-[radial-gradient(circle_at_35%_30%,hsl(var(--accent)/0.6),hsl(var(--secondary))_50%,hsl(var(--background))_80%)] shadow-2xl sm:h-64 sm:w-64" />
-            <div className="absolute inset-x-0 bottom-0 border-t border-border bg-card/95 p-6 backdrop-blur-md sm:p-8">
-              <p className="label-micro mb-2">
-                {displayEvent.category} / {displayEvent.date}
-              </p>
-              <h2 className="text-title font-semibold text-foreground">{displayEvent.title}</h2>
-              <p className="mt-2 max-w-xl text-caption text-muted-foreground">{displayDesc}</p>
+
+          {/* Clean Card Layout without placeholder shapes */}
+          <div className="relative overflow-hidden rounded-xl border border-border bg-[#121212] p-6 sm:p-8 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+              <div className="max-w-3xl space-y-3">
+                <div className="flex items-center gap-2 text-accent">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent/15 border border-accent/30 text-accent">
+                    <CategoryIcon className="h-4 w-4" />
+                  </div>
+                  <span className="label-micro !mb-0 text-accent font-semibold tracking-wider">
+                    {currentEvent.category} &bull; {currentEvent.date}
+                  </span>
+                </div>
+                <h2 className="text-title font-semibold text-foreground text-xl sm:text-2xl tracking-tight">
+                  {currentEvent.title}
+                </h2>
+                <p className="text-caption text-muted-foreground leading-relaxed max-w-2xl">
+                  Monitored in real-time by NASA’s Earth Observatory Natural Event Tracker (EONET) telemetry network.
+                </p>
+              </div>
+
+              <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 border-border/50 pt-4 sm:pt-0 gap-3">
+                <Button asChild variant="outline" size="sm" className="bg-[#181818] border-border hover:border-primary">
+                  <Link to="/globe">
+                    View on Globe
+                    <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
+                  </Link>
+                </Button>
+              </div>
             </div>
           </div>
         </div>

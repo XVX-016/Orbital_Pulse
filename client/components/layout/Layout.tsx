@@ -36,10 +36,10 @@ export default function Layout({ children }: { children: ReactNode }) {
           <footer className="pointer-events-auto relative z-10 border-t border-border px-6 py-8 bg-background">
             <div className="mx-auto flex max-w-[1400px] flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
               <p className="label-micro">
-                ORBITAL MISSION CONTROL &mdash; TRACKING NETWORK
+                ORBITAL PULSE MISSION CONTROL &mdash; TRACKING NETWORK
               </p>
               <p className="text-caption text-muted-foreground">
-                Data simulated for demonstration purposes.
+                Live data via NASA EONET &amp; CelesTrak
               </p>
             </div>
           </footer>
