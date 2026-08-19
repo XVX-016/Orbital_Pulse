@@ -1,5 +1,5 @@
 import { ArrowUpRight, ChevronLeft, ChevronRight, Cpu, Crosshair, Flame, Globe2, Radio, ScanSearch, Satellite, Thermometer, Waves, Wind } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo } from "react";
 
@@ -48,6 +48,7 @@ function getCategoryIcon(category: string) {
 }
 
 export default function Index() {
+  const navigate = useNavigate();
   const [events, setEvents] = useState<EonetEventItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLive, setIsLive] = useState(false);
@@ -135,6 +136,16 @@ export default function Index() {
     setCurrentIndex((prev) => (prev + 1) % activeEvents.length);
   };
 
+  const handleViewOnGlobe = () => {
+    if (currentEvent.coordinates) {
+      navigate(
+        `/globe?lat=${currentEvent.coordinates[1]}&lng=${currentEvent.coordinates[0]}&title=${encodeURIComponent(currentEvent.title)}`
+      );
+    } else {
+      navigate("/globe");
+    }
+  };
+
   return (
     <div className="overflow-hidden">
       {/* Hero Section: Centered text with subtle lower-half vignette overlay */}
@@ -200,12 +211,8 @@ export default function Index() {
       <section className="pointer-events-auto relative z-10 bg-background px-6 py-16">
         <div className="mx-auto max-w-[1400px]">
           <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div>
               <p className="label-micro">Featured Earth Event</p>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-[#121212] px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-                <Radio className="h-3 w-3 text-emerald-400 animate-pulse" />
-                {isLive ? "Live via NASA EONET" : "NASA EONET Feed"}
-              </span>
             </div>
 
             {/* Functional Prev / Next Controls & Index Counter */}
@@ -253,17 +260,15 @@ export default function Index() {
               </div>
 
               <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 border-border/50 pt-4 sm:pt-0 gap-3">
-                <Button asChild variant="outline" size="sm" className="bg-[#181818] border-border hover:border-primary">
-                  <Link
-                    to={
-                      currentEvent.coordinates
-                        ? `/globe?lat=${currentEvent.coordinates[1]}&lng=${currentEvent.coordinates[0]}&title=${encodeURIComponent(currentEvent.title)}`
-                        : "/globe"
-                    }
-                  >
-                    View on Globe
-                    <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
-                  </Link>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleViewOnGlobe}
+                  className="bg-[#181818] border-border hover:border-primary"
+                >
+                  View on Globe
+                  <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
                 </Button>
               </div>
             </div>

@@ -18,12 +18,14 @@ function GlobeNavigationController() {
         const lat = parseFloat(latStr);
         const lng = parseFloat(lngStr);
         if (!isNaN(lat) && !isNaN(lng)) {
+          // Delay slightly so the Cesium viewer is ready before flying
           const timeoutId = setTimeout(() => {
             flyToLocation(lat, lng);
-          }, 150);
+          }, 300);
           return () => clearTimeout(timeoutId);
         }
       }
+      // No coordinates — fly to default globe overview
       flyToView("globe");
     } else {
       flyToView("home");

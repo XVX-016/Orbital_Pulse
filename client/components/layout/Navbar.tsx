@@ -28,9 +28,8 @@ export default function Navbar() {
       <div className="pointer-events-auto mx-auto flex h-full max-w-[1400px] items-center justify-between px-6">
         <Link
           to="/"
-          className="flex items-center gap-2 text-body font-semibold tracking-[0.02em] text-foreground"
+          className="text-body font-semibold tracking-[0.02em] text-foreground"
         >
-          <span className="h-2 w-2 rounded-full bg-primary" aria-hidden />
           ORBITAL PULSE
         </Link>
 

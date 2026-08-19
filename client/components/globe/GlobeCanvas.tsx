@@ -33,8 +33,16 @@ export default function GlobeCanvas() {
     const viewer = viewerRef.current;
     if (!viewer || viewer.isDestroyed()) return;
 
+    const pointerEventsValue = isGlobe ? "auto" : "none";
+
+    // Disable pointer events on canvas itself
     if (viewer.canvas) {
-      viewer.canvas.style.pointerEvents = isGlobe ? "auto" : "none";
+      viewer.canvas.style.pointerEvents = pointerEventsValue;
+    }
+    // Also disable on the viewer container so internal Cesium widget divs
+    // don't intercept clicks on non-globe page content
+    if (viewer.container) {
+      (viewer.container as HTMLElement).style.pointerEvents = pointerEventsValue;
     }
 
     const controller = viewer.scene.screenSpaceCameraController;
@@ -55,8 +63,14 @@ export default function GlobeCanvas() {
     const isGlobeRoute = window.location.pathname === "/globe";
 
     // Set initial canvas DOM pointer-events & controller interactivity
+    const initialPointerEvents = isGlobeRoute ? "auto" : "none";
     if (viewer.canvas) {
-      viewer.canvas.style.pointerEvents = isGlobeRoute ? "auto" : "none";
+      viewer.canvas.style.pointerEvents = initialPointerEvents;
+    }
+    // Also disable on viewer container so Cesium's internal widget divs
+    // don't intercept clicks on non-globe page content
+    if (viewer.container) {
+      (viewer.container as HTMLElement).style.pointerEvents = initialPointerEvents;
     }
 
     scene.screenSpaceCameraController.enableRotate = isGlobeRoute;
