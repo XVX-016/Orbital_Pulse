@@ -5,18 +5,31 @@ import { GlobeProvider, useGlobe } from "@/lib/globe-context";
 import GlobeCanvas from "@/components/globe/GlobeCanvas";
 
 function GlobeNavigationController() {
-  const { pathname } = useLocation();
-  const { flyToView, setShowSatellitePoints } = useGlobe();
+  const { pathname, search } = useLocation();
+  const { flyToView, flyToLocation, setShowSatellitePoints } = useGlobe();
 
   useEffect(() => {
     if (pathname === "/globe") {
-      flyToView("globe");
       setShowSatellitePoints(true);
+      const params = new URLSearchParams(search);
+      const latStr = params.get("lat");
+      const lngStr = params.get("lng");
+      if (latStr && lngStr) {
+        const lat = parseFloat(latStr);
+        const lng = parseFloat(lngStr);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const timeoutId = setTimeout(() => {
+            flyToLocation(lat, lng);
+          }, 150);
+          return () => clearTimeout(timeoutId);
+        }
+      }
+      flyToView("globe");
     } else {
       flyToView("home");
       setShowSatellitePoints(false);
     }
-  }, [pathname, flyToView, setShowSatellitePoints]);
+  }, [pathname, search, flyToView, flyToLocation, setShowSatellitePoints]);
 
   return null;
 }
@@ -31,7 +44,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <GlobeNavigationController />
       <div className="pointer-events-none relative z-10 min-h-screen">
         <Navbar />
-        <main className="pointer-events-none">{children}</main>
+        <main className="pointer-events-auto">{children}</main>
         {!isGlobeRoute && (
           <footer className="pointer-events-auto relative z-10 border-t border-border px-6 py-8 bg-background">
             <div className="mx-auto flex max-w-[1400px] flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">

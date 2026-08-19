@@ -11,6 +11,7 @@ interface GlobeContextType {
   setSelectedSat: React.Dispatch<React.SetStateAction<SatelliteData | null>>;
   flyToSatellite: (sat: SatelliteData) => void;
   flyToView: (preset: "home" | "globe") => void;
+  flyToLocation: (lat: number, lng: number, altitude?: number) => void;
   showSatellitePoints: boolean;
   setShowSatellitePoints: React.Dispatch<React.SetStateAction<boolean>>;
   isPlaying: boolean;
@@ -217,6 +218,23 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Fly to specific coordinates helper (e.g. EONET Earth Event focus)
+  const flyToLocation = useCallback((lat: number, lng: number, altitude: number = 2500000) => {
+    const viewer = viewerRef.current;
+    if (!viewer || viewer.isDestroyed()) return;
+
+    viewer.camera.flyTo({
+      destination: Cartesian3.fromDegrees(lng, lat, altitude),
+      orientation: {
+        heading: 0.0,
+        pitch: -Math.PI / 3, // slightly angled top-down perspective
+        roll: 0.0,
+      },
+      duration: 2.5,
+      easingFunction: EasingFunction.QUADRATIC_IN_OUT,
+    });
+  }, []);
+
   return (
     <GlobeContext.Provider
       value={{
@@ -228,6 +246,7 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
         setSelectedSat,
         flyToSatellite,
         flyToView,
+        flyToLocation,
         showSatellitePoints,
         setShowSatellitePoints,
         isPlaying,

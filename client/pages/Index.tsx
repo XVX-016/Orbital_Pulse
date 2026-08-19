@@ -35,6 +35,7 @@ interface EonetEventItem {
   category: string;
   date: string;
   id: string;
+  coordinates?: [number, number]; // [lng, lat]
 }
 
 function getCategoryIcon(category: string) {
@@ -70,7 +71,21 @@ export default function Index() {
                 d.getFullYear()
               ).slice(2)}`;
             }
-            return { title, category, date, id: ev.id || title };
+
+            let coordinates: [number, number] | undefined = undefined;
+            const geom = ev.geometry?.[0];
+            if (geom && geom.coordinates) {
+              if (typeof geom.coordinates[0] === "number" && typeof geom.coordinates[1] === "number") {
+                coordinates = [geom.coordinates[0], geom.coordinates[1]];
+              } else if (Array.isArray(geom.coordinates[0])) {
+                const first = Array.isArray(geom.coordinates[0][0]) ? geom.coordinates[0][0] : geom.coordinates[0];
+                if (typeof first[0] === "number" && typeof first[1] === "number") {
+                  coordinates = [first[0], first[1]];
+                }
+              }
+            }
+
+            return { title, category, date, id: ev.id || title, coordinates };
           });
           setEvents(parsed);
           setIsLive(true);
@@ -88,18 +103,21 @@ export default function Index() {
         category: "Severe Storms",
         date: "03.18.25",
         id: "fallback-1",
+        coordinates: [-140.0, 35.0],
       },
       {
         title: "Sub-Saharan Thermal Anomaly Cluster",
         category: "Wildfires",
         date: "03.15.25",
         id: "fallback-2",
+        coordinates: [15.0, 10.0],
       },
       {
         title: "North Atlantic Sea Surface Temperature Drift",
         category: "Sea and Lake Ice",
         date: "03.10.25",
         id: "fallback-3",
+        coordinates: [-30.0, 50.0],
       },
     ],
     []
@@ -156,7 +174,7 @@ export default function Index() {
       </section>
 
       {/* Feature Cards Grid: Fully Opaque Solid Background */}
-      <section className="relative z-10 border-y border-border bg-background px-6 py-12">
+      <section className="pointer-events-auto relative z-10 border-y border-border bg-background px-6 py-12">
         <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
           {FEATURES.map(({ icon: Icon, label, detail, to }) => (
             <Link
@@ -179,7 +197,7 @@ export default function Index() {
       </section>
 
       {/* Featured Event Section: Clean Card with Category Icon & Functional Prev/Next Navigation */}
-      <section className="relative z-10 bg-background px-6 py-16">
+      <section className="pointer-events-auto relative z-10 bg-background px-6 py-16">
         <div className="mx-auto max-w-[1400px]">
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -192,8 +210,8 @@ export default function Index() {
 
             {/* Functional Prev / Next Controls & Index Counter */}
             <div className="flex items-center gap-2">
-              <span className="label-micro mr-2">
-                0{currentIndex + 1} / 0{activeEvents.length}
+              <span className="label-micro mr-2 font-mono">
+                {String(currentIndex + 1).padStart(2, "0")} / {String(activeEvents.length).padStart(2, "0")}
               </span>
               <button
                 type="button"
@@ -236,7 +254,13 @@ export default function Index() {
 
               <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 border-border/50 pt-4 sm:pt-0 gap-3">
                 <Button asChild variant="outline" size="sm" className="bg-[#181818] border-border hover:border-primary">
-                  <Link to="/globe">
+                  <Link
+                    to={
+                      currentEvent.coordinates
+                        ? `/globe?lat=${currentEvent.coordinates[1]}&lng=${currentEvent.coordinates[0]}&title=${encodeURIComponent(currentEvent.title)}`
+                        : "/globe"
+                    }
+                  >
                     View on Globe
                     <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
                   </Link>
