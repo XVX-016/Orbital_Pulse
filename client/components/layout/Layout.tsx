@@ -1,65 +1,19 @@
-import { ReactNode, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { ReactNode } from "react";
 import Navbar from "./Navbar";
-import { GlobeProvider, useGlobe } from "@/lib/globe-context";
-import GlobeCanvas from "@/components/globe/GlobeCanvas";
-
-function GlobeNavigationController() {
-  const { pathname, search } = useLocation();
-  const { flyToView, flyToLocation, setShowSatellitePoints } = useGlobe();
-
-  useEffect(() => {
-    if (pathname === "/globe") {
-      setShowSatellitePoints(true);
-      const params = new URLSearchParams(search);
-      const latStr = params.get("lat");
-      const lngStr = params.get("lng");
-      if (latStr && lngStr) {
-        const lat = parseFloat(latStr);
-        const lng = parseFloat(lngStr);
-        if (!isNaN(lat) && !isNaN(lng)) {
-          // Delay slightly so the Cesium viewer is ready before flying
-          const timeoutId = setTimeout(() => {
-            flyToLocation(lat, lng);
-          }, 300);
-          return () => clearTimeout(timeoutId);
-        }
-      }
-      // No coordinates — fly to default globe overview
-      flyToView("globe");
-    } else {
-      flyToView("home");
-      setShowSatellitePoints(false);
-    }
-  }, [pathname, search, flyToView, flyToLocation, setShowSatellitePoints]);
-
-  return null;
-}
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { pathname } = useLocation();
-  const isGlobeRoute = pathname === "/globe";
-
   return (
-    <GlobeProvider>
-      <GlobeCanvas />
-      <GlobeNavigationController />
-      <div className="pointer-events-none relative z-10 min-h-screen">
-        <Navbar />
-        <main className="pointer-events-auto">{children}</main>
-        {!isGlobeRoute && (
-          <footer className="pointer-events-auto relative z-10 border-t border-border px-6 py-8 bg-background">
-            <div className="mx-auto flex max-w-[1400px] flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
-              <p className="label-micro">
-                ORBITAL PULSE MISSION CONTROL &mdash; TRACKING NETWORK
-              </p>
-              <p className="text-caption text-muted-foreground">
-                Live data via NASA EONET &amp; CelesTrak
-              </p>
-            </div>
-          </footer>
-        )}
-      </div>
-    </GlobeProvider>
+    <div className="relative min-h-screen">
+      <Navbar />
+      <main>{children}</main>
+      <footer className="relative z-10 border-t border-border px-6 py-8 bg-background">
+        <div className="mx-auto flex max-w-[1400px] flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+          <p className="label-micro">SATQUERY AI &mdash; REMOTE-SENSING VQA &amp; CHANGE ANALYSIS</p>
+          <p className="text-caption text-muted-foreground">
+            Multi-modal Earth Observation &amp; Agentic Intelligence
+          </p>
+        </div>
+      </footer>
+    </div>
   );
 }
