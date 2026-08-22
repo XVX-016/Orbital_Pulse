@@ -1,32 +1,32 @@
-import { ArrowUpRight, ChevronLeft, ChevronRight, Cpu, Crosshair, Flame, Globe2, Radio, ScanSearch, Satellite, Thermometer, Waves, Wind } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, Cpu, GitCompare, MessageSquareText, Radio, Flame, Wind, Waves, Thermometer, Globe2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo } from "react";
 
 const FEATURES = [
   {
-    icon: Satellite,
-    label: "Live Satellite Tracking",
-    detail: "Follow every orbit in real time.",
-    to: "/globe",
+    icon: MessageSquareText,
+    label: "Visual Question Answering",
+    detail: "Ask natural-language queries on optical & SAR satellite imagery.",
+    to: "/analyze",
   },
   {
-    icon: ScanSearch,
-    label: "Change Detection AI",
-    detail: "See what changed on Earth.",
-    to: "/change-detection",
+    icon: GitCompare,
+    label: "Change Detection & Description",
+    detail: "Quantify and describe surface alterations across bi-temporal pairs.",
+    to: "/analyze",
   },
   {
-    icon: Crosshair,
-    label: "Satellite Inspector",
-    detail: "Dive into every signal.",
-    to: "/globe",
+    icon: Radio,
+    label: "Optical–SAR Fusion",
+    detail: "Combine cloud-penetrating radar with high-res optical channels.",
+    to: "/analyze",
   },
   {
     icon: Cpu,
-    label: "Edge AI Pipeline",
-    detail: "Process insights at the edge.",
-    to: "/about",
+    label: "Agentic Task Routing",
+    detail: "Automatic intent classification & auditable execution traces.",
+    to: "/analyze",
   },
 ];
 
@@ -51,7 +51,6 @@ export default function Index() {
   const navigate = useNavigate();
   const [events, setEvents] = useState<EonetEventItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isLive, setIsLive] = useState(false);
 
   useEffect(() => {
     fetch("https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=6")
@@ -89,7 +88,6 @@ export default function Index() {
             return { title, category, date, id: ev.id || title, coordinates };
           });
           setEvents(parsed);
-          setIsLive(true);
         }
       })
       .catch((err) => {
@@ -136,47 +134,45 @@ export default function Index() {
     setCurrentIndex((prev) => (prev + 1) % activeEvents.length);
   };
 
-  const handleViewOnGlobe = () => {
-    if (currentEvent.coordinates) {
-      navigate(
-        `/globe?lat=${currentEvent.coordinates[1]}&lng=${currentEvent.coordinates[0]}&title=${encodeURIComponent(currentEvent.title)}`
-      );
-    } else {
-      navigate("/globe");
-    }
+  const handleAnalyzeEvent = () => {
+    navigate(`/analyze?query=${encodeURIComponent(`Analyze ${currentEvent.title}`)}`);
   };
 
   return (
     <div className="overflow-hidden">
-      {/* Hero Section: Centered text with subtle lower-half vignette overlay */}
-      <section className="pointer-events-none relative flex min-h-[calc(100vh-64px)] items-end justify-center px-6 pb-24 sm:pb-28 pt-16">
-        {/* Subtle full-width vignette overlay across lower half for background contrast */}
-        <div
-          className="absolute inset-0 pointer-events-none z-0"
-          style={{
-            background: "linear-gradient(to top, rgba(10,10,10,0.6) 0%, transparent 55%)",
-          }}
-        />
+      {/* Hero Section: Centered text over high-res Earth satellite background visual */}
+      <section className="relative flex min-h-[calc(100vh-64px)] items-end justify-center px-6 pb-24 sm:pb-28 pt-16">
+        {/* Background Satellite Visual */}
+        <div className="absolute inset-0 z-0 overflow-hidden">
+          <img
+            src="/hero-satellite.jpg"
+            alt="Optical Earth observation satellite imagery"
+            className="h-full w-full object-cover object-center scale-105 filter brightness-90 contrast-105"
+          />
+          {/* Vignette gradients for text legibility */}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0A] via-[#0A0A0A]/60 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#0A0A0A]/80 via-transparent to-[#0A0A0A]/90" />
+        </div>
 
         <div className="relative z-10 w-full max-w-[1400px] mx-auto flex justify-center">
-          <div className="pointer-events-auto max-w-2xl text-center flex flex-col items-center">
+          <div className="max-w-2xl text-center flex flex-col items-center">
             <p className="label-micro mb-4 text-primary-foreground/90 font-semibold tracking-wider drop-shadow-sm">
-              Earth observation, reimagined
+              Agentic Remote-Sensing Intelligence
             </p>
             <h1
               className="text-hero font-bold leading-[1.04] text-foreground sm:text-[56px]"
-              style={{ textShadow: "0 2px 16px rgba(0,0,0,0.7)" }}
+              style={{ textShadow: "0 2px 20px rgba(0,0,0,0.85)" }}
             >
-              Track Earth from orbit.
+              Ask Earth what changed.
             </h1>
-            <p className="mt-5 max-w-lg text-body text-muted-foreground font-medium leading-relaxed drop-shadow">
-              One living view of our planet, powered by the satellites and AI that watch over it.
+            <p className="mt-5 max-w-xl text-body text-muted-foreground font-medium leading-relaxed drop-shadow-md">
+              Natural-language querying of multi-temporal optical &amp; SAR satellite imagery, orchestrated by an agentic multimodal AI assistant.
             </p>
             <div className="mt-8 flex justify-center">
               <Button asChild size="lg" className="shadow-lg hover:shadow-primary/20">
-                <Link to="/globe">
-                  Launch Globe
-                  <ArrowUpRight aria-hidden="true" />
+                <Link to="/analyze">
+                  Try SatQuery AI
+                  <ArrowUpRight aria-hidden="true" className="ml-1 h-4 w-4" />
                 </Link>
               </Button>
             </div>
@@ -184,8 +180,8 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Feature Cards Grid: Fully Opaque Solid Background */}
-      <section className="pointer-events-auto relative z-10 border-y border-border bg-background px-6 py-12">
+      {/* Feature Cards Grid */}
+      <section className="relative z-10 border-y border-border bg-background px-6 py-12">
         <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
           {FEATURES.map(({ icon: Icon, label, detail, to }) => (
             <Link
@@ -199,7 +195,7 @@ export default function Index() {
                 strokeWidth={1.5}
               />
               <span>
-                <span className="block text-body text-foreground">{label}</span>
+                <span className="block text-body font-semibold text-foreground">{label}</span>
                 <span className="mt-1 block text-caption text-muted-foreground">{detail}</span>
               </span>
             </Link>
@@ -207,15 +203,15 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Featured Event Section: Clean Card with Category Icon & Functional Prev/Next Navigation */}
-      <section className="pointer-events-auto relative z-10 bg-background px-6 py-16">
+      {/* Featured Earth Event Section */}
+      <section className="relative z-10 bg-background px-6 py-16">
         <div className="mx-auto max-w-[1400px]">
           <div className="mb-6 flex items-center justify-between">
             <div>
-              <p className="label-micro">Featured Earth Event</p>
+              <p className="label-micro">Active Planetary Telemetry &bull; EONET</p>
             </div>
 
-            {/* Functional Prev / Next Controls & Index Counter */}
+            {/* Prev / Next Controls & Index Counter */}
             <div className="flex items-center gap-2">
               <span className="label-micro mr-2 font-mono">
                 {String(currentIndex + 1).padStart(2, "0")} / {String(activeEvents.length).padStart(2, "0")}
@@ -239,7 +235,7 @@ export default function Index() {
             </div>
           </div>
 
-          {/* Clean Card Layout without placeholder shapes */}
+          {/* Event Card */}
           <div className="relative overflow-hidden rounded-xl border border-border bg-[#121212] p-6 sm:p-8 shadow-xl">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
               <div className="max-w-3xl space-y-3">
@@ -255,7 +251,7 @@ export default function Index() {
                   {currentEvent.title}
                 </h2>
                 <p className="text-caption text-muted-foreground leading-relaxed max-w-2xl">
-                  Monitored in real-time by NASA’s Earth Observatory Natural Event Tracker (EONET) telemetry network.
+                  Real-time environmental event tracked by NASA’s Earth Observatory Natural Event Tracker. SatQuery AI can query multi-modal imagery for active event zones.
                 </p>
               </div>
 
@@ -264,10 +260,10 @@ export default function Index() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={handleViewOnGlobe}
+                  onClick={handleAnalyzeEvent}
                   className="bg-[#181818] border-border hover:border-primary"
                 >
-                  View on Globe
+                  Query Event
                   <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
                 </Button>
               </div>

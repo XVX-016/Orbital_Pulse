@@ -8,7 +8,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Layout from "@/components/layout/Layout";
 import Index from "./pages/Index";
-import Globe from "./pages/Globe";
 import ChangeDetection from "./pages/ChangeDetection";
 import About from "./pages/About";
 import NotFound from "./pages/NotFound";
@@ -24,7 +23,6 @@ const App = () => (
         <Layout>
           <Routes>
             <Route path="/" element={<Index />} />
-            <Route path="/globe" element={<Globe />} />
             <Route path="/change-detection" element={<ChangeDetection />} />
             <Route path="/about" element={<About />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
@@ -37,4 +35,3 @@ const App = () => (
 );
 
 createRoot(document.getElementById("root")!).render(<App />);
-

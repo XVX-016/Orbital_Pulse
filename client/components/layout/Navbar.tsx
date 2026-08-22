@@ -3,8 +3,7 @@ import { Link, NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
-  { to: "/globe", label: "Globe" },
-  { to: "/change-detection", label: "Change Detection" },
+  { to: "/analyze", label: "Analyze" },
   { to: "/about", label: "About" },
 ];
 
@@ -30,7 +29,7 @@ export default function Navbar() {
           to="/"
           className="text-body font-semibold tracking-[0.02em] text-foreground"
         >
-          ORBITAL PULSE
+          SATQUERY AI
         </Link>
 
         <nav className="flex items-center gap-8">
@@ -40,10 +39,10 @@ export default function Navbar() {
               to={link.to}
               className={({ isActive }) =>
                 cn(
-                  "text-body text-secondary-foreground/0 pb-1 border-b border-transparent transition-colors",
+                  "text-body pb-1 border-b border-transparent transition-colors",
                   isActive
                     ? "text-foreground border-primary"
-                    : "text-muted-foreground hover:text-foreground",
+                    : "text-muted-foreground hover:text-foreground"
                 )
               }
             >

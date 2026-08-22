@@ -13,9 +13,9 @@ ENV C_INCLUDE_PATH=/usr/include/gdal
 
 COPY requirements.txt .
 
-# Install Python dependencies
-# We use --no-cache-dir to keep the image small
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies using CPU-only PyTorch index
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple -r requirements.txt
+
 
 # Pre-download the Hugging Face model during the image build to speed up startup
 # (Optional, but good for local dev)

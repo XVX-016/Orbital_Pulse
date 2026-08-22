@@ -1,6 +1,6 @@
-# Orbital Pulse
+# SatQuery AI
 
-A full-stack satellite tracking and Earth observation platform featuring a 3D globe with live satellite positions, AI-powered change detection using NASA/IBM's Prithvi foundation model, and a PostGIS-backed geospatial database.
+A full-stack remote-sensing VQA and change-analysis platform featuring natural-language querying of multi-temporal optical & SAR satellite imagery, orchestrated by an agentic multimodal controller and backed by PostGIS.
 
 ## Architecture
 
@@ -9,28 +9,29 @@ A full-stack satellite tracking and Earth observation platform featuring a 3D gl
 │                         Browser (User)                          │
 │                                                                 │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────┐  │
-│  │  /           │  │  /globe      │  │  /change-detection    │  │
-│  │  Landing     │  │  CesiumJS    │  │  Before/After Slider  │  │
-│  │  Page        │  │  3D Globe    │  │  + AI Inference       │  │
-│  └──────────────┘  └──────┬───────┘  └───────────┬───────────┘  │
-└──────────────────────────────────────────────────────────────────┘
-                            │                      │
-                   Live TLE data           POST /api/change-detection
-                   GET /api/tle            GET /images/*.jpg (previews)
-                            │                      │
-                 ┌──────────▼───────┐   ┌──────────▼──────────────┐
-                 │  orbit-service   │   │  ai-inference-service   │
-                 │  Express (8081)  │   │  FastAPI (8082)         │
-                 │                  │   │  Prithvi-EO-1.0-100M    │
-                 │  Fetches from    │   │  GeoTIFF processing     │
-                 │  CelesTrak API   │   │  Change detection masks │
-                 └──────────────────┘   └─────────────────────────┘
-                                                   │
-                                        ┌──────────▼──────────────┐
-                                        │  PostGIS (5432)         │
-                                        │  postgis/postgis:16-3.4 │
-                                        │  Geospatial database    │
-                                        └─────────────────────────┘
+│  │  /           │  │  /analyze    │  │  /about               │  │
+│  │  Landing     │  │  SatQuery AI │  │  Architecture &       │  │
+│  │  Hero & EONET│  │  Query Agent │  │  Edge Roadmap         │  │
+│  └──────────────┘  └──────┬───────┘  └───────────────────────┘  │
+└───────────────────────────┼──────────────────────────────────────┘
+                            │
+                   POST /api/analyze
+                   GET /health
+                            │
+                 ┌──────────▼──────────────┐
+                 │  satquery-service       │
+                 │  FastAPI (8082)         │
+                 │  - Controller           │
+                 │  - Task Router          │
+                 │  - Specialists (VQA,    │
+                 │    Change, SAR, Ground) │
+                 │  - Prithvi-EO / GeoChat │
+                 └──────────┬──────────────┘
+                            │
+                 ┌──────────▼──────────────┐
+                 │  PostGIS (5432)         │
+                 │  postgis/postgis:16-3.4 │
+                 └─────────────────────────┘
 ```
 
 ## Services
@@ -229,24 +230,37 @@ Expected startup timeline:
 - `ai-inference-service`: healthy in **90–120s** (GDAL + model download/load from cache; `start_period: 120s`)
 - `frontend`: starts after both services are healthy
 
+Once up, confirm all four services are healthy:
+
+```bash
+docker compose ps
+# Expected output (all STATUS fields showing "healthy"):
+# NAME                                   STATUS
+# orbital_pulse-ai-inference-service-1   Up N minutes (healthy)
+# orbital_pulse-frontend-1               Up N minutes (healthy)
+# orbital_pulse-orbit-service-1          Up N minutes (healthy)
+# orbital_pulse-postgis-1                Up N minutes (healthy)
+```
+
 ### Step 4: Verify Each Service
 
 #### 4a. Frontend — `http://localhost:5173`
 
-- Landing page loads
+- Landing page loads with the 3D Earth hero and "Launch Globe" CTA
 - Navigation bar links to `/globe`, `/change-detection`, `/about` all work
 - No console errors about missing assets
 
 #### 4b. Globe / Orbit Service — `http://localhost:5173/globe`
 
-- 3D CesiumJS globe renders
+- 3D CesiumJS globe renders with photorealistic Earth imagery
 - **Status pill must show `"X satellites loaded (Orbit Service)"` — NOT `"Offline Catalog"`**
+- Satellite markers (blue dots) are visible orbiting the Earth
 - If it shows Offline Catalog, the orbit-service is not reachable. Diagnose:
   ```bash
   docker compose logs orbit-service          # check for fetch errors
   docker compose ps                           # verify service is healthy
   curl http://localhost:8081/health           # confirm it responds
-  curl http://localhost:8081/api/tle | head   # confirm TLE data is returned
+  curl http://localhost:8081/api/tle | head   # confirm TLE data is returned (text/plain format)
   ```
   The `VITE_ORBIT_SERVICE_URL` is baked in at build time as `http://localhost:8081`. The browser fetches it from the host machine — this works as long as port 8081 is published (it is).
 
