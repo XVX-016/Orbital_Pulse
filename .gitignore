@@ -70,3 +70,9 @@ ai-inference-service/public/images/
 ai-inference-service/raw_data/
 benchmark_results.json
 benchmark_results.csv
+
+# GeoChat ML Environment & Model Cache
+ml/geochat/venv/
+ml/geochat/GeoChat/
+ml/geochat/eval_samples/
+
