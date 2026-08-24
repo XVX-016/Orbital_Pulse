@@ -398,6 +398,22 @@ export default function Analyze() {
                       {result.answer}
                     </p>
 
+                    {Array.isArray(result.visual_evidence) && result.visual_evidence.length > 0 && (
+                      <div className="pt-3 border-t border-border/40 space-y-2">
+                        <span className="label-micro text-muted-foreground block">Visual Evidence (Grounding Bounding Boxes)</span>
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {result.visual_evidence.map((item: any, idx: number) => (
+                            <div key={idx} className="flex items-center justify-between p-2 rounded bg-[#141414] border border-border/50 text-xs">
+                              <span className="font-medium text-foreground truncate max-w-[200px]">{item.label}</span>
+                              <span className="font-mono text-primary text-[11px]">
+                                box: [{item.box_normalized.join(", ")}]
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {result.visual_evidence?.change_percentage !== undefined && result.visual_evidence?.change_percentage !== null && (
                       <div className="pt-3 border-t border-border/40 flex items-center justify-between">
                         <span className="label-micro text-muted-foreground">Detected Surface Change</span>

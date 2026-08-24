@@ -76,3 +76,7 @@ ml/geochat/venv/
 ml/geochat/GeoChat/
 ml/geochat/eval_samples/
 
+# Temporary generated images
+public/nasa_check_tmp.jpg
+
+

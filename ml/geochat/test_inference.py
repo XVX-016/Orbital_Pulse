@@ -24,7 +24,7 @@ from io import BytesIO
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 MODEL_PATH = os.environ.get("GEOCHAT_MODEL_PATH", "MBZUAI/geochat-7B")
-# A freely-available Sentinel-2 crop patch (agricultural / RGB natural):
+# A freely-available aerial remote-sensing image crop patch:
 TEST_IMAGE_URL = (
     "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57723/globe_west_2048.jpg"
 )
