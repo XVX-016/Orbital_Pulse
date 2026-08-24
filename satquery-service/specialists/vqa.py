@@ -1,30 +1,37 @@
-"""Visual Question Answering (VQA) Specialist.
-
-Handles natural-language visual query answering over single optical remote-sensing images.
-"""
-
 from typing import Any, Dict, List, Optional
+from PIL import Image
+
+from geochat_engine import run_geochat_inference, is_geochat_loaded
 
 
 def run_vqa(images: List[Any], query: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Exposes VQA execution over a single optical image.
-
-    Result schema:
-    - answer: str
-    - confidence: float | None (no fabricated values; None if model logits unavailable)
-    - visual_evidence: dict | None (bounding box/mask reference or None)
-    """
-    # TODO: Integrate GeoChat / RS-VQA model inference here
-    # E.g. model.generate(image, prompt=query)
-    
-    # Return structured result format
-    return {
-        "answer": f"Visual Question Answering result for query: '{query}'. [Stub response: GeoChat integration pending]",
-        "confidence": None,
-        "visual_evidence": None,
-        "details": {
-            "specialist": "VQA",
-            "image_count": len(images),
-            "model_target": "GeoChat-7B / RS-VQA"
+    """Executes VQA over optical remote-sensing image using GeoChat-7B."""
+    if not images or not isinstance(images[0], Image.Image):
+        return {
+            "answer": "No valid image provided for Visual Question Answering.",
+            "confidence": None,
+            "visual_evidence": None,
+            "details": {"specialist": "VQA", "error": "Invalid image input"}
         }
-    }
+
+    image = images[0]
+
+    if is_geochat_loaded():
+        answer_text, visual_evidence, duration = run_geochat_inference(image, query)
+        return {
+            "answer": answer_text,
+            "confidence": None,  # Model logits unavailable in standard generation
+            "visual_evidence": visual_evidence if visual_evidence else None,
+            "details": {
+                "specialist": "VQA",
+                "model": "GeoChat-7B (4-bit)",
+                "latency_seconds": round(duration, 2)
+            }
+        }
+    else:
+        return {
+            "answer": f"Visual Question Answering result for query: '{query}'. [GeoChat engine uninitialized - fallback mode]",
+            "confidence": None,
+            "visual_evidence": None,
+            "details": {"specialist": "VQA", "model": "Fallback Stub"}
+        }

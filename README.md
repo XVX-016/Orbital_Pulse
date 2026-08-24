@@ -39,9 +39,11 @@ A full-stack remote-sensing VQA and change-analysis platform featuring natural-l
 | Service | Port | Description |
 |---|---|---|
 | **Frontend** | `5173` | React SPA served via Nginx (Docker) or Vite dev server (local) |
-| **Orbit Service** | `8081` | Express proxy for CelesTrak TLE data with 6-hour in-memory cache |
-| **AI Inference Service** | `8082` | FastAPI + Prithvi-EO-1.0-100M for satellite image change detection |
+| **SatQuery AI Service** | `8082` | FastAPI + Agentic Controller (VQA, Grounding, Change Analysis, SAR Fusion) |
+| **GeoChat ML Engine** | Local / CUDA | Standalone 4-bit GeoChat-7B inference engine (`ml/geochat/`) |
 | **PostGIS** | `5432` | PostgreSQL 16 + PostGIS 3.4 geospatial database |
+
+> 📖 **GeoChat Model Setup**: For complete instructions on running local 4-bit GeoChat-7B inference, see [`ml/geochat/SETUP.md`](file:///c:/Computing/Orbital_Pulse/ml/geochat/SETUP.md).
 
 ## Prerequisites
 
