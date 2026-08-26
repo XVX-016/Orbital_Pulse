@@ -1,0 +1,90 @@
+[
+  {
+    "id": "vrs_001",
+    "benchmark": "VRSBench",
+    "task_type": "presence",
+    "image": "C:\\Computing\\Orbital_Pulse\\satquery-service\\eval\\benchmark_data\\airport.jpg",
+    "question": "Is there an airport runway present in this satellite image?",
+    "answers": [
+      "yes",
+      "Yes"
+    ],
+    "key_terms": [
+      "yes",
+      "runway",
+      "airport"
+    ]
+  },
+  {
+    "id": "vrs_002",
+    "benchmark": "VRSBench",
+    "task_type": "land_cover",
+    "image": "C:\\Computing\\Orbital_Pulse\\satquery-service\\eval\\benchmark_data\\agri.jpg",
+    "question": "What is the primary land cover classification of this area?",
+    "answers": [
+      "agricultural",
+      "farmland",
+      "fields"
+    ],
+    "key_terms": [
+      "agriculture",
+      "agricultural",
+      "farmland",
+      "crop",
+      "field"
+    ]
+  },
+  {
+    "id": "vrs_003",
+    "benchmark": "VRSBench",
+    "task_type": "identification",
+    "image": "C:\\Computing\\Orbital_Pulse\\satquery-service\\eval\\benchmark_data\\port.jpg",
+    "question": "What type of facility is located along the shoreline?",
+    "answers": [
+      "port",
+      "harbor",
+      "maritime port"
+    ],
+    "key_terms": [
+      "port",
+      "harbor",
+      "dock",
+      "pier",
+      "maritime"
+    ]
+  },
+  {
+    "id": "vrs_004",
+    "benchmark": "VRSBench",
+    "task_type": "spatial",
+    "image": "C:\\Computing\\Orbital_Pulse\\satquery-service\\eval\\benchmark_data\\coastal.jpg",
+    "question": "Where are the rocky hills located relative to the water?",
+    "answers": [
+      "adjacent to water",
+      "along the coastline"
+    ],
+    "key_terms": [
+      "coast",
+      "water",
+      "hill",
+      "adjacent",
+      "along"
+    ]
+  },
+  {
+    "id": "vrs_005",
+    "benchmark": "VRSBench",
+    "task_type": "presence",
+    "image": "C:\\Computing\\Orbital_Pulse\\satquery-service\\eval\\benchmark_data\\agri.jpg",
+    "question": "Are there industrial dock cranes present in this rural scene?",
+    "answers": [
+      "no",
+      "No"
+    ],
+    "key_terms": [
+      "no",
+      "not present",
+      "none"
+    ]
+  }
+]

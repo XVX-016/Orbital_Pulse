@@ -1,0 +1,80 @@
+[
+  {
+    "id": "rsvqa_lr_001",
+    "benchmark": "RSVQA-LR",
+    "task_type": "presence",
+    "image": "C:\\Computing\\Orbital_Pulse\\satquery-service\\eval\\benchmark_data\\airport.jpg",
+    "question": "Are there buildings present in this image?",
+    "answers": [
+      "yes"
+    ],
+    "key_terms": [
+      "yes",
+      "building",
+      "structure"
+    ]
+  },
+  {
+    "id": "rsvqa_lr_002",
+    "benchmark": "RSVQA-LR",
+    "task_type": "count",
+    "image": "C:\\Computing\\Orbital_Pulse\\satquery-service\\eval\\benchmark_data\\airport.jpg",
+    "question": "How many main bridge structures are visible in the scene?",
+    "answers": [
+      "2",
+      "two"
+    ],
+    "key_terms": [
+      "2",
+      "two"
+    ]
+  },
+  {
+    "id": "rsvqa_lr_003",
+    "benchmark": "RSVQA-LR",
+    "task_type": "land_cover",
+    "image": "C:\\Computing\\Orbital_Pulse\\satquery-service\\eval\\benchmark_data\\coastal.jpg",
+    "question": "What is the dominant land cover category?",
+    "answers": [
+      "coastal",
+      "natural vegetation",
+      "water"
+    ],
+    "key_terms": [
+      "coastal",
+      "grass",
+      "water",
+      "vegetation",
+      "mountain"
+    ]
+  },
+  {
+    "id": "rsvqa_lr_004",
+    "benchmark": "RSVQA-LR",
+    "task_type": "comparison",
+    "image": "C:\\Computing\\Orbital_Pulse\\satquery-service\\eval\\benchmark_data\\agri.jpg",
+    "question": "Are there more vegetated fields than urban buildings?",
+    "answers": [
+      "yes"
+    ],
+    "key_terms": [
+      "yes",
+      "field",
+      "vegetated"
+    ]
+  },
+  {
+    "id": "rsvqa_lr_005",
+    "benchmark": "RSVQA-LR",
+    "task_type": "presence",
+    "image": "C:\\Computing\\Orbital_Pulse\\satquery-service\\eval\\benchmark_data\\port.jpg",
+    "question": "Is water present in this satellite image?",
+    "answers": [
+      "yes"
+    ],
+    "key_terms": [
+      "yes",
+      "water"
+    ]
+  }
+]
