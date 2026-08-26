@@ -7,7 +7,7 @@ import os
 import sys
 import time
 import logging
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 import torch
 from PIL import Image
 
@@ -166,3 +166,100 @@ def run_geochat_inference(
     visual_evidence = parse_geochat_grounding(outputs, img_width=image.width, img_height=image.height)
 
     return outputs, visual_evidence, duration
+
+
+def run_geochat_multi_image_inference(
+    images: List[Image.Image],
+    query: str,
+) -> Tuple[str, Optional[list], float]:
+    """
+    Executes native multi-image bi-temporal inference over multiple PIL Images and a comparison query.
+
+    Args:
+        images: List of PIL Images (e.g. [before_image, after_image]).
+        query: Change detection / comparative VQA prompt.
+
+    Returns: (generated_text_answer, parsed_visual_evidence_list, inference_duration_seconds)
+    """
+    if not _GEOCHAT_LOADED:
+        raise RuntimeError("GeoChat model is not loaded in satquery-service.")
+
+    if not images or len(images) == 0:
+        raise ValueError("At least one image must be provided for multi-image inference.")
+
+    from geochat.conversation import conv_templates, SeparatorStyle
+    from geochat.mm_utils import tokenizer_image_token, KeywordsStoppingCriteria
+    from geochat.constants import (
+        IMAGE_TOKEN_INDEX,
+        DEFAULT_IMAGE_TOKEN,
+        DEFAULT_IM_START_TOKEN,
+        DEFAULT_IM_END_TOKEN,
+    )
+
+    t_start = time.time()
+
+    # Format multi-image prompt
+    use_im_start_end = getattr(_GEOCHAT_MODEL.config, "mm_use_im_start_end", False)
+    image_token_str = (
+        DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN
+        if use_im_start_end
+        else DEFAULT_IMAGE_TOKEN
+    )
+
+    if len(images) == 1:
+        qs = image_token_str + "\n" + query
+    else:
+        prompt_parts = []
+        for idx in range(len(images)):
+            prompt_parts.append(f"Image {idx + 1}: {image_token_str}")
+        prompt_parts.append(query)
+        qs = "\n".join(prompt_parts)
+
+    conv = conv_templates["llava_v1"].copy()
+    conv.append_message(conv.roles[0], qs)
+    conv.append_message(conv.roles[1], None)
+    prompt = conv.get_prompt()
+
+    input_ids = tokenizer_image_token(prompt, _GEOCHAT_TOKENIZER, IMAGE_TOKEN_INDEX, return_tensors="pt").unsqueeze(0)
+    if torch.cuda.is_available():
+        input_ids = input_ids.cuda()
+
+    # Process and stack all image tensors
+    tensor_list = []
+    for img in images:
+        t = _GEOCHAT_IMAGE_PROCESSOR.preprocess(img, return_tensors="pt")["pixel_values"][0]
+        tensor_list.append(t)
+
+    images_stacked = torch.stack(tensor_list, dim=0)
+    if torch.cuda.is_available():
+        images_stacked = images_stacked.half().cuda()
+
+    stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
+    keywords = [stop_str]
+    stopping_criteria = KeywordsStoppingCriteria(keywords, _GEOCHAT_TOKENIZER, input_ids)
+
+    with torch.inference_mode():
+        output_ids = _GEOCHAT_MODEL.generate(
+            input_ids,
+            images=images_stacked,
+            do_sample=True,
+            temperature=0.2,
+            max_new_tokens=512,
+            use_cache=True,
+            stopping_criteria=[stopping_criteria],
+        )
+
+    duration = time.time() - t_start
+
+    input_token_len = input_ids.shape[1]
+    generated_ids = output_ids[:, input_token_len:]
+    outputs = _GEOCHAT_TOKENIZER.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
+    if outputs.endswith(stop_str):
+        outputs = outputs[:-len(stop_str)].strip()
+
+    # Parse visual grounding evidence from generated output using dimensions of first image
+    ref_img = images[0]
+    visual_evidence = parse_geochat_grounding(outputs, img_width=ref_img.width, img_height=ref_img.height)
+
+    return outputs, visual_evidence, duration
+

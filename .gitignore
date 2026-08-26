@@ -75,8 +75,11 @@ benchmark_results.csv
 ml/geochat/venv/
 ml/geochat/GeoChat/
 ml/geochat/eval_samples/
+ml/geochat/finetune/checkpoints/
+ml/geochat/finetune/dataset/
 
 # Temporary generated images
 public/nasa_check_tmp.jpg
+
 
 
