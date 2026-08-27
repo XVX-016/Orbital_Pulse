@@ -16,6 +16,7 @@ import json
 import time
 import math
 import argparse
+import re
 from collections import Counter
 from typing import Dict, List, Any
 from PIL import Image
@@ -63,6 +64,22 @@ def compute_bleu_n(reference: str, hypothesis: str, n: int = 1) -> float:
     return round(bp * precision, 4)
 
 
+def compute_soft_match(prediction: str, answers: List[str]) -> float:
+    """Match a contiguous whole-token answer alias, excluding noisy keyword metadata."""
+    prediction_tokens = re.findall(r"\w+", prediction.casefold())
+    if not prediction_tokens:
+        return 0.0
+
+    for answer in answers:
+        answer_tokens = re.findall(r"\w+", answer.casefold())
+        if answer_tokens and any(
+            prediction_tokens[index : index + len(answer_tokens)] == answer_tokens
+            for index in range(len(prediction_tokens) - len(answer_tokens) + 1)
+        ):
+            return 1.0
+    return 0.0
+
+
 def evaluate_item(item: Dict[str, Any]) -> Dict[str, Any]:
     """Runs single benchmark item through SatQuery route_and_execute controller."""
     img_path = item["image"]
@@ -91,8 +108,8 @@ def evaluate_item(item: Dict[str, Any]) -> Dict[str, Any]:
     # 1. Exact Match
     exact_match = 1.0 if any(pred_lower == a for a in answers) else 0.0
 
-    # 2. Soft / Substring Keyword Match
-    soft_match = 1.0 if any(kt in pred_lower for kt in key_terms) else 0.0
+    # 2. Soft answer-alias match using whole tokens, not noisy key-term metadata
+    soft_match = compute_soft_match(prediction, item["answers"])
 
     # 3. BLEU Scores against primary ground truth answer
     ref_primary = item["answers"][0]
@@ -124,6 +141,12 @@ def main():
         default=None,
         help="Maximum number of items to evaluate from each benchmark dataset.",
     )
+    parser.add_argument(
+        "--dataset",
+        choices=("auto", "real", "sanity"),
+        default="auto",
+        help="Dataset family to evaluate (default: auto-detect real files).",
+    )
     args = parser.parse_args()
 
     print("=" * 70)
@@ -148,7 +171,10 @@ def main():
     sanity_vqa_file = os.path.join(data_dir, "sanitycheck_vqa.json")
     sanity_rsvqa_file = os.path.join(data_dir, "sanitycheck_rsvqa.json")
 
-    is_real_benchmark = os.path.exists(real_vrs_file) and os.path.exists(real_rsvqa_file)
+    real_files_available = os.path.exists(real_vrs_file) and os.path.exists(real_rsvqa_file)
+    if args.dataset == "real" and not real_files_available:
+        parser.error("real benchmark files were not found")
+    is_real_benchmark = args.dataset == "real" or (args.dataset == "auto" and real_files_available)
 
     if is_real_benchmark:
         print("      Found authentic VRSBench & RSVQA-LR dataset files.")
