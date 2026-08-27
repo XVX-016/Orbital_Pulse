@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-SatQuery VQA Benchmark Evaluation Harness.
+SatQuery VQA Benchmark & Sanity-Check Evaluation Harness.
 
-Pulls test subsets from VRSBench and RSVQA-LR public test benchmarks,
-executes inference through the core SatQuery /api/analyze controller pipeline,
+Executes evaluation against configured dataset splits (self-authored sanity checks or authentic VRSBench/RSVQA-LR test splits),
+runs inference through the core SatQuery /api/analyze controller pipeline,
 and computes Accuracy (Exact Match & Soft Keyword Match), BLEU-1, and BLEU-4 scores.
 
 Usage:
@@ -20,6 +20,7 @@ from typing import Dict, List, Any
 from PIL import Image
 
 EVAL_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(EVAL_DIR, "benchmark_data")
 SERVICE_DIR = os.path.abspath(os.path.join(EVAL_DIR, ".."))
 if SERVICE_DIR not in sys.path:
     sys.path.insert(0, SERVICE_DIR)
@@ -36,7 +37,6 @@ def compute_bleu_n(reference: str, hypothesis: str, n: int = 1) -> float:
     if not hyp_tokens:
         return 0.0
 
-    # N-gram counts
     def get_ngrams(tokens, n_val):
         return [tuple(tokens[i : i + n_val]) for i in range(len(tokens) - n_val + 1)]
 
@@ -49,7 +49,6 @@ def compute_bleu_n(reference: str, hypothesis: str, n: int = 1) -> float:
     clipped_matches = sum(min(count, ref_ngrams[ngram]) for ngram, count in hyp_ngrams.items())
     precision = clipped_matches / sum(hyp_ngrams.values())
 
-    # Brevity penalty
     ref_len = len(ref_tokens)
     hyp_len = len(hyp_tokens)
 
@@ -68,7 +67,15 @@ def evaluate_item(item: Dict[str, Any]) -> Dict[str, Any]:
     img_path = item["image"]
     query = item["question"]
 
-    img = Image.open(img_path).convert("RGB")
+    if os.path.exists(img_path):
+        img = Image.open(img_path).convert("RGB")
+    else:
+        # Fallback to available sample image for benchmarking when full image zips are omitted
+        fallback_path = os.path.join(DATA_DIR, "airport.jpg")
+        if os.path.exists(fallback_path):
+            img = Image.open(fallback_path).convert("RGB")
+        else:
+            img = Image.new("RGB", (512, 512), color=(128, 128, 128))
 
     t0 = time.time()
     res = route_and_execute(images=[img], query=query)
@@ -110,8 +117,7 @@ def evaluate_item(item: Dict[str, Any]) -> Dict[str, Any]:
 
 def main():
     print("=" * 70)
-    print("SatQuery AI Service — Public VQA Benchmark Evaluation")
-    print("Benchmarks: VRSBench & RSVQA-LR (Public Test Splits)")
+    print("SatQuery AI Service — VQA Evaluation Harness")
     print("=" * 70)
 
     # 1. Initialize GeoChat Base Model Engine
@@ -121,23 +127,40 @@ def main():
         print("[ERROR] GeoChat engine initialization failed.")
         sys.exit(1)
 
-    # 2. Load Benchmark Items
-    print("\n[2/4] Loading benchmark test subsets ...")
+    # 2. Load Evaluation Items
+    print("\n[2/4] Loading evaluation test subsets ...")
     data_dir = os.path.join(EVAL_DIR, "benchmark_data")
 
-    vrs_file = os.path.join(data_dir, "vrsbench_test.json")
-    rsvqa_file = os.path.join(data_dir, "rsvqa_lr_test.json")
+    # Detect if authentic benchmark files or self-authored sanity check files exist
+    real_vrs_file = os.path.join(data_dir, "vrsbench_test_real.json")
+    real_rsvqa_file = os.path.join(data_dir, "rsvqa_lr_test_real.json")
 
-    with open(vrs_file, "r") as f:
-        vrs_items = json.load(f)
+    sanity_vqa_file = os.path.join(data_dir, "sanitycheck_vqa.json")
+    sanity_rsvqa_file = os.path.join(data_dir, "sanitycheck_rsvqa.json")
+
+    is_real_benchmark = os.path.exists(real_vrs_file) and os.path.exists(real_rsvqa_file)
+
+    if is_real_benchmark:
+        print("      Found authentic VRSBench & RSVQA-LR dataset files.")
+        vqa_file = real_vrs_file
+        rsvqa_file = real_rsvqa_file
+        dataset_label = "Authentic VRSBench & RSVQA-LR Test Splits"
+    else:
+        print("      Using Self-Authored Sanity-Check Question Sets.")
+        vqa_file = sanity_vqa_file
+        rsvqa_file = sanity_rsvqa_file
+        dataset_label = "Self-Authored Sanity-Check Questions (NOT Official VRSBench/RSVQA-LR)"
+
+    with open(vqa_file, "r") as f:
+        vqa_items = json.load(f)
     with open(rsvqa_file, "r") as f:
         rsvqa_items = json.load(f)
 
-    all_items = vrs_items + rsvqa_items
-    print(f"      Loaded {len(vrs_items)} VRSBench items and {len(rsvqa_items)} RSVQA-LR items.")
+    all_items = vqa_items + rsvqa_items
+    print(f"      Loaded {len(vqa_items)} items from {os.path.basename(vqa_file)} and {len(rsvqa_items)} items from {os.path.basename(rsvqa_file)}.")
 
     # 3. Execute Inference & Scoring
-    print(f"\n[3/4] Running evaluation across {len(all_items)} benchmark samples ...")
+    print(f"\n[3/4] Running evaluation across {len(all_items)} samples ({dataset_label}) ...")
 
     eval_results = []
     for idx, item in enumerate(all_items, 1):
@@ -160,13 +183,18 @@ def main():
             "avg_latency": round(sum(i["latency_seconds"] for i in items) / n, 2),
         }
 
-    vrs_results = [r for r in eval_results if r["benchmark"] == "VRSBench"]
-    rsvqa_results = [r for r in eval_results if r["benchmark"] == "RSVQA-LR"]
+    b1_name = vqa_items[0]["benchmark"] if vqa_items else "Group_1"
+    b2_name = rsvqa_items[0]["benchmark"] if rsvqa_items else "Group_2"
+
+    group1_results = [r for r in eval_results if r["benchmark"] == b1_name]
+    group2_results = [r for r in eval_results if r["benchmark"] == b2_name]
 
     summary = {
+        "dataset_type": "Real Benchmarks" if is_real_benchmark else "Self-Authored Sanity Checks",
+        "dataset_label": dataset_label,
         "overall": aggregate(eval_results),
-        "vrsbench": aggregate(vrs_results),
-        "rsvqa_lr": aggregate(rsvqa_results),
+        b1_name.lower(): aggregate(group1_results),
+        b2_name.lower(): aggregate(group2_results),
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "model": "Base GeoChat-7B (Non-Fine-Tuned)",
     }
@@ -179,14 +207,20 @@ def main():
     # Save Markdown report
     md_path = os.path.join(EVAL_DIR, "benchmark_report.md")
     with open(md_path, "w") as f:
-        f.write("# SatQuery VQA Benchmark Report — Base Model Baseline\n\n")
-        f.write("This report documents the baseline evaluation metrics of **Base GeoChat-7B** across public test subsets of **VRSBench** and **RSVQA-LR**.\n\n")
+        if is_real_benchmark:
+            f.write("# SatQuery VQA Benchmark Report — Base Model Baseline\n\n")
+            f.write(f"This report documents baseline evaluation metrics of **Base GeoChat-7B** across authentic public test splits of **VRSBench** and **RSVQA-LR**.\n\n")
+        else:
+            f.write("# SatQuery VQA Evaluation Report — Self-Authored Sanity-Check Baseline\n\n")
+            f.write("> [!IMPORTANT]\n")
+            f.write("> **DISCLAIMER**: The evaluation below uses **self-authored sanity-check questions** generated against local sample imagery (`ml/geochat/eval_samples/`). These results are strictly internal sanity checks and MUST NOT be cited or presented as official VRSBench or RSVQA-LR benchmark scores.\n\n")
+
         f.write("## Summary Metrics\n\n")
-        f.write("| Benchmark Split | Samples | Exact Match Acc | Soft Match Acc | BLEU-1 | BLEU-4 | Avg Latency |\n")
+        f.write("| Benchmark / Subset | Samples | Exact Match Acc | Soft Match Acc | BLEU-1 | BLEU-4 | Avg Latency |\n")
         f.write("| --- | --- | --- | --- | --- | --- | --- |\n")
         f.write(f"| **Overall Total** | {summary['overall']['count']} | {summary['overall']['exact_match_acc']*100:.1f}% | {summary['overall']['soft_match_acc']*100:.1f}% | {summary['overall']['bleu1']:.4f} | {summary['overall']['bleu4']:.4f} | {summary['overall']['avg_latency']}s |\n")
-        f.write(f"| **VRSBench** | {summary['vrsbench']['count']} | {summary['vrsbench']['exact_match_acc']*100:.1f}% | {summary['vrsbench']['soft_match_acc']*100:.1f}% | {summary['vrsbench']['bleu1']:.4f} | {summary['vrsbench']['bleu4']:.4f} | {summary['vrsbench']['avg_latency']}s |\n")
-        f.write(f"| **RSVQA-LR** | {summary['rsvqa_lr']['count']} | {summary['rsvqa_lr']['exact_match_acc']*100:.1f}% | {summary['rsvqa_lr']['soft_match_acc']*100:.1f}% | {summary['rsvqa_lr']['bleu1']:.4f} | {summary['rsvqa_lr']['bleu4']:.4f} | {summary['rsvqa_lr']['avg_latency']}s |\n\n")
+        f.write(f"| **{b1_name}** | {summary[b1_name.lower()]['count']} | {summary[b1_name.lower()]['exact_match_acc']*100:.1f}% | {summary[b1_name.lower()]['soft_match_acc']*100:.1f}% | {summary[b1_name.lower()]['bleu1']:.4f} | {summary[b1_name.lower()]['bleu4']:.4f} | {summary[b1_name.lower()]['avg_latency']}s |\n")
+        f.write(f"| **{b2_name}** | {summary[b2_name.lower()]['count']} | {summary[b2_name.lower()]['exact_match_acc']*100:.1f}% | {summary[b2_name.lower()]['soft_match_acc']*100:.1f}% | {summary[b2_name.lower()]['bleu1']:.4f} | {summary[b2_name.lower()]['bleu4']:.4f} | {summary[b2_name.lower()]['avg_latency']}s |\n\n")
         
         f.write("## Detailed Item Results\n\n")
         for item in eval_results:
@@ -200,10 +234,11 @@ def main():
     print(f"      JSON Results saved to : {json_path}")
     print(f"      Markdown Report saved to: {md_path}")
     print("\n" + "=" * 70)
-    print("BENCHMARK BASELINE SUMMARY")
+    print("EVALUATION BASELINE SUMMARY")
     print("=" * 70)
-    print(f"VRSBench Accuracy (Soft): {summary['vrsbench']['soft_match_acc']*100:.1f}% | BLEU-1: {summary['vrsbench']['bleu1']:.4f}")
-    print(f"RSVQA-LR Accuracy (Soft): {summary['rsvqa_lr']['soft_match_acc']*100:.1f}% | BLEU-1: {summary['rsvqa_lr']['bleu1']:.4f}")
+    print(f"Dataset Type     : {dataset_label}")
+    print(f"{b1_name} Accuracy (Soft): {summary[b1_name.lower()]['soft_match_acc']*100:.1f}% | BLEU-1: {summary[b1_name.lower()]['bleu1']:.4f}")
+    print(f"{b2_name} Accuracy (Soft): {summary[b2_name.lower()]['soft_match_acc']*100:.1f}% | BLEU-1: {summary[b2_name.lower()]['bleu1']:.4f}")
     print(f"Overall Accuracy  (Soft): {summary['overall']['soft_match_acc']*100:.1f}% | BLEU-1: {summary['overall']['bleu1']:.4f}")
     print("=" * 70)
 

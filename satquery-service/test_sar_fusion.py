@@ -4,6 +4,9 @@ Test script for Optical-SAR Fusion specialist.
 
 Runs multimodal Optical + Sentinel-1 SAR fusion inference across 3 sample pairs
 from satquery-service/data/sar_samples/.
+
+NOTE: Samples in satquery-service/data/sar_samples/ are synthetic placeholder arrays
+generated with fabricated pixel statistics, validated strictly for offline pipeline testing pending real Sentinel-1 GRD imagery.
 """
 
 import os

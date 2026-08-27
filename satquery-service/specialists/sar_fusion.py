@@ -4,6 +4,12 @@ Optical–SAR Fusion Specialist.
 Handles multimodal Optical + Synthetic Aperture Radar (SAR) fusion queries for all-weather, cloud-penetrating,
 and day/night satellite imagery analysis.
 
+IMPORTANT DISCLAIMER:
+    The current test benchmark dataset for this SAR pathway relies on synthetic placeholder arrays
+    with fabricated Gaussian pixel statistics (generated via prepare_sar_samples.py). The pathway is
+    validated ONLY against synthetic placeholder data pending real imagery integration (e.g. Sentinel-1 GRD
+  from Copernicus Open Access Hub or BigEarthNet-S1), and is not presented as a validated real-world working capability.
+
 Implementation & Engineering Note:
   This specialist implements a scoped multimodal fusion approach combining:
   1. Deep VLM Optical Scene Understanding via GeoChat-7B (analyzes optical spectral/contextual features).

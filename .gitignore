@@ -68,6 +68,10 @@ ai-inference-service/data/
 ai-inference-service/public/masks/
 ai-inference-service/public/images/
 ai-inference-service/raw_data/
+satquery-service/eval/benchmark_data/raw_*
+satquery-service/eval/benchmark_data/real_images/
+satquery-service/eval/benchmark_data/*_test_real.json
+satquery-service/eval/benchmark_data/sanitycheck_*.json
 benchmark_results.json
 benchmark_results.csv
 
