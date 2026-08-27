@@ -15,6 +15,7 @@ import sys
 import json
 import time
 import math
+import argparse
 from collections import Counter
 from typing import Dict, List, Any
 from PIL import Image
@@ -116,6 +117,15 @@ def evaluate_item(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Run the SatQuery VQA benchmark harness.")
+    parser.add_argument(
+        "--max-items",
+        type=int,
+        default=None,
+        help="Maximum number of items to evaluate from each benchmark dataset.",
+    )
+    args = parser.parse_args()
+
     print("=" * 70)
     print("SatQuery AI Service — VQA Evaluation Harness")
     print("=" * 70)
@@ -155,6 +165,12 @@ def main():
         vqa_items = json.load(f)
     with open(rsvqa_file, "r") as f:
         rsvqa_items = json.load(f)
+
+    if args.max_items is not None:
+        if args.max_items < 1:
+            parser.error("--max-items must be at least 1")
+        vqa_items = vqa_items[:args.max_items]
+        rsvqa_items = rsvqa_items[:args.max_items]
 
     all_items = vqa_items + rsvqa_items
     print(f"      Loaded {len(vqa_items)} items from {os.path.basename(vqa_file)} and {len(rsvqa_items)} items from {os.path.basename(rsvqa_file)}.")
@@ -206,7 +222,7 @@ def main():
 
     # Save Markdown report
     md_path = os.path.join(EVAL_DIR, "benchmark_report.md")
-    with open(md_path, "w") as f:
+    with open(md_path, "w", encoding="utf-8") as f:
         if is_real_benchmark:
             f.write("# SatQuery VQA Benchmark Report — Base Model Baseline\n\n")
             f.write(f"This report documents baseline evaluation metrics of **Base GeoChat-7B** across authentic public test splits of **VRSBench** and **RSVQA-LR**.\n\n")
