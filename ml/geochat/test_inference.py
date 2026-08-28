@@ -17,6 +17,11 @@ import os
 import sys
 import time
 
+# Ensure ml/geochat path is accessible for env_check
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from env_check import assert_geochat_env
+assert_geochat_env()
+
 import torch
 from PIL import Image
 import requests

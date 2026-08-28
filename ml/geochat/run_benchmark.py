@@ -11,6 +11,11 @@ import time
 import re
 import json
 
+# Ensure ml/geochat path is accessible for env_check
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from env_check import assert_geochat_env
+assert_geochat_env()
+
 import torch
 from PIL import Image, ImageDraw
 
@@ -116,6 +121,8 @@ def main():
         DEFAULT_IM_END_TOKEN,
     )
 
+    from geochat.mm_utils import process_images_demo
+
     model_name = get_model_name_from_path(MODEL_PATH)
     print("\nLoading GeoChat model in 4-bit...")
     t0 = time.time()
@@ -128,9 +135,9 @@ def main():
     )
     print(f"Model loaded in {time.time() - t0:.1f}s. Peak VRAM: {torch.cuda.max_memory_allocated() / 1024**3:.2f} GB")
 
-    # Set CLIP image processor resolution to 504px to match GeoChat's interpolated CLIP vision tower
-    image_processor.crop_size = {"height": 504, "width": 504}
-    image_processor.size = {"shortest_edge": 504}
+    # Ensure tokenizer padding and EOS alignment
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     results = []
 
@@ -142,32 +149,36 @@ def main():
 
         image = Image.open(s['file']).convert("RGB")
         
-        # Build prompt
+        # Use GeoChat official image preprocessing function
+        image_tensor = process_images_demo([image], image_processor).half().cuda()
+
+        # Build prompt using GeoChat official conversation template
         if model.config.mm_use_im_start_end:
             qs = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN + DEFAULT_IM_END_TOKEN + "\n" + s['question']
         else:
             qs = DEFAULT_IMAGE_TOKEN + "\n" + s['question']
 
-        conv = conv_templates["llava_v1"].copy()
+        conv = conv_templates["v1"].copy() if "v1" in conv_templates else conv_templates["llava_v1"].copy()
         conv.append_message(conv.roles[0], qs)
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
 
         input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt").unsqueeze(0).cuda()
-        image_tensor = image_processor.preprocess(image, return_tensors="pt")["pixel_values"].half().cuda()
 
         stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
         keywords = [stop_str]
         stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
 
         t_start = time.time()
+        # Deterministic greedy decoding — repetition_penalty is NOT used because
+        # IMAGE_TOKEN_INDEX in input_ids exceeds vocab size, causing CUDA gather OOB.
+        # Greedy + capped length is sufficient to prevent degenerate loops.
         with torch.inference_mode():
             output_ids = model.generate(
                 input_ids,
                 images=image_tensor,
-                do_sample=True,
-                temperature=0.2,
-                max_new_tokens=512,
+                do_sample=False,
+                max_new_tokens=128,
                 use_cache=True,
                 stopping_criteria=[stopping_criteria],
             )
