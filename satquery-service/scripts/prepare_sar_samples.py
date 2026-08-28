@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """
-Generates representative paired Sentinel-1 SAR and Sentinel-2 Optical sample pairs
+Generates synthetic paired Sentinel-1 SAR and Sentinel-2 Optical sample pairs
 for testing the Optical-SAR Fusion Specialist.
 
-Sample 1: Coastal Harbor (Optical + SAR VV backscatter)
-Sample 2: Urban Area (Optical + SAR VV backscatter)
-Sample 3: Agricultural Field / Water Reservoir (Optical + SAR VV backscatter)
+IMPORTANT NOTICE / DISCLAIMER:
+  This script generates synthetic arrays with fabricated pixel statistics (Gaussian noise distributions)
+  to construct mock Sentinel-1 VV backscatter maps. It DOES NOT derive images from real Sentinel-1
+  or satellite sources. The SAR pathway is validated ONLY against synthetic placeholder data pending
+  real imagery integration (e.g., Sentinel-1 GRD / BigEarthNet-S1), and is NOT presented as a validated real-world working capability.
+
+Sample 1: Coastal Harbor (Optical + Synthetic SAR VV backscatter)
+Sample 2: Urban Area (Optical + Synthetic SAR VV backscatter)
+Sample 3: Agricultural Field / Water Reservoir (Optical + Synthetic SAR VV backscatter)
 """
 
 import os

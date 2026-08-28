@@ -14,8 +14,13 @@ Usage:
 
 import os
 import sys
-import json
 import time
+import json
+
+# Ensure ml/geochat path is accessible for env_check
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from env_check import assert_geochat_env
+assert_geochat_env()
 import torch
 from PIL import Image
 

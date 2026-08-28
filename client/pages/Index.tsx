@@ -38,6 +38,15 @@ interface EonetEventItem {
   coordinates?: [number, number]; // [lng, lat]
 }
 
+const CATEGORY_IMAGES: Record<string, string> = {
+  wildfire: "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&w=800&q=80",
+  storm: "https://images.unsplash.com/photo-1527482797697-8795b05a13fe?auto=format&fit=crop&w=800&q=80",
+  flood: "https://images.unsplash.com/photo-1547683905-f686c993aae5?auto=format&fit=crop&w=800&q=80",
+  ice: "https://images.unsplash.com/photo-1517783999520-f068d7431a60?auto=format&fit=crop&w=800&q=80",
+  volcano: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=800&q=80",
+  default: "/hero-satellite.jpg",
+};
+
 function getCategoryIcon(category: string) {
   const c = category.toLowerCase();
   if (c.includes("fire") || c.includes("wildfire")) return Flame;
@@ -47,10 +56,22 @@ function getCategoryIcon(category: string) {
   return Globe2;
 }
 
+function getEventImageUrl(item: EonetEventItem): string {
+  const cat = item.category.toLowerCase();
+  if (cat.includes("fire") || cat.includes("wildfire")) return CATEGORY_IMAGES.wildfire;
+  if (cat.includes("storm") || cat.includes("cyclone") || cat.includes("hurricane") || cat.includes("typhoon")) return CATEGORY_IMAGES.storm;
+  if (cat.includes("flood") || cat.includes("water") || cat.includes("sea")) return CATEGORY_IMAGES.flood;
+  if (cat.includes("ice") || cat.includes("snow")) return CATEGORY_IMAGES.ice;
+  if (cat.includes("volcano") || cat.includes("temp") || cat.includes("heat")) return CATEGORY_IMAGES.volcano;
+  return CATEGORY_IMAGES.default;
+}
+
 export default function Index() {
   const navigate = useNavigate();
   const [events, setEvents] = useState<EonetEventItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
     fetch("https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=6")
@@ -126,6 +147,12 @@ export default function Index() {
   const currentEvent = activeEvents[currentIndex % activeEvents.length];
   const CategoryIcon = getCategoryIcon(currentEvent.category);
 
+  // Reset image state on index change
+  useEffect(() => {
+    setImgLoaded(false);
+    setImgError(false);
+  }, [currentIndex]);
+
   const handlePrev = () => {
     setCurrentIndex((prev) => (prev === 0 ? activeEvents.length - 1 : prev - 1));
   };
@@ -137,6 +164,18 @@ export default function Index() {
   const handleAnalyzeEvent = () => {
     navigate(`/analyze?query=${encodeURIComponent(`Analyze ${currentEvent.title}`)}`);
   };
+
+  const eventImgUrl = getEventImageUrl(currentEvent);
+  const catKey = currentEvent.category.toLowerCase();
+  const fallbackCatImg = catKey.includes("fire")
+    ? CATEGORY_IMAGES.wildfire
+    : catKey.includes("storm")
+    ? CATEGORY_IMAGES.storm
+    : catKey.includes("flood")
+    ? CATEGORY_IMAGES.flood
+    : catKey.includes("ice")
+    ? CATEGORY_IMAGES.ice
+    : CATEGORY_IMAGES.default;
 
   return (
     <div className="overflow-hidden">
@@ -208,7 +247,7 @@ export default function Index() {
         <div className="mx-auto max-w-[1400px]">
           <div className="mb-6 flex items-center justify-between">
             <div>
-              <p className="label-micro">Active Planetary Telemetry &bull; EONET</p>
+              <p className="label-micro">Active Planetary Telemetry</p>
             </div>
 
             {/* Prev / Next Controls & Index Counter */}
@@ -235,37 +274,68 @@ export default function Index() {
             </div>
           </div>
 
-          {/* Event Card */}
-          <div className="relative overflow-hidden rounded-xl border border-border bg-[#121212] p-6 sm:p-8 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
-              <div className="max-w-3xl space-y-3">
-                <div className="flex items-center gap-2 text-accent">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent/15 border border-accent/30 text-accent">
-                    <CategoryIcon className="h-4 w-4" />
+          {/* Event Card with Thumbnail Image & Gradient Overlay */}
+          <div className="relative overflow-hidden rounded-xl border border-border bg-[#121212] shadow-xl">
+            <div className="flex flex-col md:flex-row items-stretch">
+              {/* Event Image Thumbnail Container */}
+              <div className="relative w-full md:w-72 lg:w-80 shrink-0 min-h-[180px] bg-black/40 overflow-hidden">
+                {!imgLoaded && !imgError && (
+                  <div className="absolute inset-0 animate-pulse bg-neutral-800/80 flex items-center justify-center">
+                    <Globe2 className="h-8 w-8 text-neutral-600 animate-spin" />
                   </div>
-                  <span className="label-micro !mb-0 text-accent font-semibold tracking-wider">
-                    {currentEvent.category} &bull; {currentEvent.date}
-                  </span>
-                </div>
-                <h2 className="text-title font-semibold text-foreground text-xl sm:text-2xl tracking-tight">
-                  {currentEvent.title}
-                </h2>
-                <p className="text-caption text-muted-foreground leading-relaxed max-w-2xl">
-                  Real-time environmental event tracked by NASA’s Earth Observatory Natural Event Tracker. SatQuery AI can query multi-modal imagery for active event zones.
-                </p>
+                )}
+                <img
+                  src={imgError ? fallbackCatImg : eventImgUrl}
+                  alt={currentEvent.title}
+                  onLoad={() => setImgLoaded(true)}
+                  onError={() => {
+                    setImgError(true);
+                    setImgLoaded(true);
+                  }}
+                  className={`h-full w-full object-cover transition-opacity duration-300 ${
+                    imgLoaded ? "opacity-100" : "opacity-0"
+                  }`}
+                />
+                {/* Gradient overlay for smooth transition */}
+                <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-transparent via-[#121212]/40 to-[#121212]" />
               </div>
 
-              <div className="flex sm:flex-col items-center sm:items-end justify-between border-t sm:border-t-0 border-border/50 pt-4 sm:pt-0 gap-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleAnalyzeEvent}
-                  className="bg-[#181818] border-border hover:border-primary"
-                >
-                  Query Event
-                  <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
-                </Button>
+              {/* Event Card Content */}
+              <div className="flex-1 p-6 sm:p-8 flex flex-col justify-between gap-6 z-10">
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-accent">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent/15 border border-accent/30 text-accent">
+                      <CategoryIcon className="h-4 w-4" />
+                    </div>
+                    <span className="label-micro !mb-0 text-accent font-semibold tracking-wider">
+                      {currentEvent.category} &bull; {currentEvent.date}
+                    </span>
+                  </div>
+                  <h2 className="text-title font-semibold text-foreground text-xl sm:text-2xl tracking-tight">
+                    {currentEvent.title}
+                  </h2>
+                  <p className="text-caption text-muted-foreground leading-relaxed max-w-2xl">
+                    Real-time environmental event tracked by satellite sensors. SatQuery AI can query multi-modal imagery for active event zones.
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between border-t border-border/50 pt-4">
+                  {currentEvent.coordinates && (
+                    <span className="text-xs font-mono text-muted-foreground">
+                      LAT: {currentEvent.coordinates[1].toFixed(2)}&deg; &bull; LON: {currentEvent.coordinates[0].toFixed(2)}&deg;
+                    </span>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAnalyzeEvent}
+                    className="ml-auto bg-[#181818] border-border hover:border-primary"
+                  >
+                    Query Event
+                    <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

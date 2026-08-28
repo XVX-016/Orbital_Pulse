@@ -1,7 +1,18 @@
 #!/usr/bin/env python3
 """
-Prepares authentic test subset benchmark files for VRSBench and RSVQA-LR.
-Places sample imagery and structured ground-truth QA items in satquery-service/eval/benchmark_data/.
+Prepares self-authored sanity-check QA items for pipeline smoke testing.
+
+IMPORTANT DISCLAIMER:
+  These questions are SELF-AUTHORED using project sample images from ml/geochat/eval_samples/.
+  They are NOT sourced from any published benchmark dataset. They must NOT be cited or
+  presented as VRSBench, RSVQA-LR, or any other published benchmark results.
+
+  For real benchmark evaluation, use download_real_benchmarks.py to obtain authentic
+  test splits from:
+    - VRSBench: https://github.com/lx709/VRSBench (HF: xiang709/VRSBench)
+    - RSVQA-LR: https://doi.org/10.5281/zenodo.6344333
+
+Places sample imagery and structured QA items in satquery-service/eval/benchmark_data/.
 """
 
 import os
@@ -34,11 +45,11 @@ def prepare_data():
             image_paths[name] = dst
             print(f"Copied image {name} -> {dst}")
 
-    # 1. Authentic VRSBench Test Split Subset (arXiv:2406.12480 benchmark structure)
-    vrsbench_items = [
+    # 1. Self-authored VQA-style sanity-check questions (NOT from VRSBench)
+    sanitycheck_vqa_items = [
         {
-            "id": "vrs_001",
-            "benchmark": "VRSBench",
+            "id": "sanity_vqa_001",
+            "benchmark": "SanityCheck-VQA",
             "task_type": "presence",
             "image": image_paths.get("airport"),
             "question": "Is there an airport runway present in this satellite image?",
@@ -46,8 +57,8 @@ def prepare_data():
             "key_terms": ["yes", "runway", "airport"],
         },
         {
-            "id": "vrs_002",
-            "benchmark": "VRSBench",
+            "id": "sanity_vqa_002",
+            "benchmark": "SanityCheck-VQA",
             "task_type": "land_cover",
             "image": image_paths.get("agri"),
             "question": "What is the primary land cover classification of this area?",
@@ -55,8 +66,8 @@ def prepare_data():
             "key_terms": ["agriculture", "agricultural", "farmland", "crop", "field"],
         },
         {
-            "id": "vrs_003",
-            "benchmark": "VRSBench",
+            "id": "sanity_vqa_003",
+            "benchmark": "SanityCheck-VQA",
             "task_type": "identification",
             "image": image_paths.get("port"),
             "question": "What type of facility is located along the shoreline?",
@@ -64,8 +75,8 @@ def prepare_data():
             "key_terms": ["port", "harbor", "dock", "pier", "maritime"],
         },
         {
-            "id": "vrs_004",
-            "benchmark": "VRSBench",
+            "id": "sanity_vqa_004",
+            "benchmark": "SanityCheck-VQA",
             "task_type": "spatial",
             "image": image_paths.get("coastal"),
             "question": "Where are the rocky hills located relative to the water?",
@@ -73,8 +84,8 @@ def prepare_data():
             "key_terms": ["coast", "water", "hill", "adjacent", "along"],
         },
         {
-            "id": "vrs_005",
-            "benchmark": "VRSBench",
+            "id": "sanity_vqa_005",
+            "benchmark": "SanityCheck-VQA",
             "task_type": "presence",
             "image": image_paths.get("agri"),
             "question": "Are there industrial dock cranes present in this rural scene?",
@@ -83,11 +94,11 @@ def prepare_data():
         },
     ]
 
-    # 2. Authentic RSVQA-LR Test Split Subset (IEEE TGRS / Low-Res Sentinel-2 benchmark structure)
-    rsvqa_lr_items = [
+    # 2. Self-authored RSVQA-style sanity-check questions (NOT from RSVQA-LR)
+    sanitycheck_rsvqa_items = [
         {
-            "id": "rsvqa_lr_001",
-            "benchmark": "RSVQA-LR",
+            "id": "sanity_rsvqa_001",
+            "benchmark": "SanityCheck-RSVQA",
             "task_type": "presence",
             "image": image_paths.get("airport"),
             "question": "Are there buildings present in this image?",
@@ -95,8 +106,8 @@ def prepare_data():
             "key_terms": ["yes", "building", "structure"],
         },
         {
-            "id": "rsvqa_lr_002",
-            "benchmark": "RSVQA-LR",
+            "id": "sanity_rsvqa_002",
+            "benchmark": "SanityCheck-RSVQA",
             "task_type": "count",
             "image": image_paths.get("airport"),
             "question": "How many main bridge structures are visible in the scene?",
@@ -104,8 +115,8 @@ def prepare_data():
             "key_terms": ["2", "two"],
         },
         {
-            "id": "rsvqa_lr_003",
-            "benchmark": "RSVQA-LR",
+            "id": "sanity_rsvqa_003",
+            "benchmark": "SanityCheck-RSVQA",
             "task_type": "land_cover",
             "image": image_paths.get("coastal"),
             "question": "What is the dominant land cover category?",
@@ -113,8 +124,8 @@ def prepare_data():
             "key_terms": ["coastal", "grass", "water", "vegetation", "mountain"],
         },
         {
-            "id": "rsvqa_lr_004",
-            "benchmark": "RSVQA-LR",
+            "id": "sanity_rsvqa_004",
+            "benchmark": "SanityCheck-RSVQA",
             "task_type": "comparison",
             "image": image_paths.get("agri"),
             "question": "Are there more vegetated fields than urban buildings?",
@@ -122,8 +133,8 @@ def prepare_data():
             "key_terms": ["yes", "field", "vegetated"],
         },
         {
-            "id": "rsvqa_lr_005",
-            "benchmark": "RSVQA-LR",
+            "id": "sanity_rsvqa_005",
+            "benchmark": "SanityCheck-RSVQA",
             "task_type": "presence",
             "image": image_paths.get("port"),
             "question": "Is water present in this satellite image?",
@@ -132,17 +143,18 @@ def prepare_data():
         },
     ]
 
-    vrs_json_path = os.path.join(DATA_DIR, "vrsbench_test.json")
-    with open(vrs_json_path, "w") as f:
-        json.dump(vrsbench_items, f, indent=2)
+    vqa_json_path = os.path.join(DATA_DIR, "sanitycheck_vqa.json")
+    with open(vqa_json_path, "w") as f:
+        json.dump(sanitycheck_vqa_items, f, indent=2)
 
-    rsvqa_json_path = os.path.join(DATA_DIR, "rsvqa_lr_test.json")
+    rsvqa_json_path = os.path.join(DATA_DIR, "sanitycheck_rsvqa.json")
     with open(rsvqa_json_path, "w") as f:
-        json.dump(rsvqa_lr_items, f, indent=2)
+        json.dump(sanitycheck_rsvqa_items, f, indent=2)
 
-    print("\nBenchmark test subsets prepared successfully!")
-    print(f"  VRSBench subset : {vrs_json_path} ({len(vrsbench_items)} items)")
-    print(f"  RSVQA-LR subset : {rsvqa_json_path} ({len(rsvqa_lr_items)} items)")
+    print("\nSanity-check QA items prepared successfully!")
+    print(f"  VQA-style sanity checks : {vqa_json_path} ({len(sanitycheck_vqa_items)} items)")
+    print(f"  RSVQA-style sanity checks: {rsvqa_json_path} ({len(sanitycheck_rsvqa_items)} items)")
+    print("\n  NOTE: These are self-authored questions, NOT published benchmark data.")
 
 
 if __name__ == "__main__":
