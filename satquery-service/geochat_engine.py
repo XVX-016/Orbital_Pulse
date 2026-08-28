@@ -101,7 +101,7 @@ def run_geochat_inference(
         raise RuntimeError("GeoChat model is not loaded in satquery-service.")
 
     from geochat.conversation import conv_templates, SeparatorStyle
-    from geochat.mm_utils import tokenizer_image_token, KeywordsStoppingCriteria
+    from geochat.mm_utils import tokenizer_image_token, KeywordsStoppingCriteria, process_images_demo
     from geochat.constants import (
         IMAGE_TOKEN_INDEX,
         DEFAULT_IMAGE_TOKEN,
@@ -125,7 +125,7 @@ def run_geochat_inference(
     else:
         qs = DEFAULT_IMAGE_TOKEN + "\n" + effective_query
 
-    conv = conv_templates["llava_v1"].copy()
+    conv = conv_templates["v1"].copy() if "v1" in conv_templates else conv_templates["llava_v1"].copy()
     conv.append_message(conv.roles[0], qs)
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
@@ -134,7 +134,8 @@ def run_geochat_inference(
     if torch.cuda.is_available():
         input_ids = input_ids.cuda()
 
-    image_tensor = _GEOCHAT_IMAGE_PROCESSOR.preprocess(image, return_tensors="pt")["pixel_values"]
+    # Use GeoChat official process_images_demo for exact CLIP aspect ratio padding & normalization
+    image_tensor = process_images_demo([image], _GEOCHAT_IMAGE_PROCESSOR)
     if torch.cuda.is_available():
         image_tensor = image_tensor.half().cuda()
 
@@ -146,9 +147,8 @@ def run_geochat_inference(
         output_ids = _GEOCHAT_MODEL.generate(
             input_ids,
             images=image_tensor,
-            do_sample=True,
-            temperature=0.2,
-            max_new_tokens=512,
+            do_sample=False,
+            max_new_tokens=128,
             use_cache=True,
             stopping_criteria=[stopping_criteria],
         )
@@ -188,7 +188,7 @@ def run_geochat_multi_image_inference(
         raise ValueError("At least one image must be provided for multi-image inference.")
 
     from geochat.conversation import conv_templates, SeparatorStyle
-    from geochat.mm_utils import tokenizer_image_token, KeywordsStoppingCriteria
+    from geochat.mm_utils import tokenizer_image_token, KeywordsStoppingCriteria, process_images_demo
     from geochat.constants import (
         IMAGE_TOKEN_INDEX,
         DEFAULT_IMAGE_TOKEN,
@@ -215,7 +215,7 @@ def run_geochat_multi_image_inference(
         prompt_parts.append(query)
         qs = "\n".join(prompt_parts)
 
-    conv = conv_templates["llava_v1"].copy()
+    conv = conv_templates["v1"].copy() if "v1" in conv_templates else conv_templates["llava_v1"].copy()
     conv.append_message(conv.roles[0], qs)
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
@@ -224,13 +224,8 @@ def run_geochat_multi_image_inference(
     if torch.cuda.is_available():
         input_ids = input_ids.cuda()
 
-    # Process and stack all image tensors
-    tensor_list = []
-    for img in images:
-        t = _GEOCHAT_IMAGE_PROCESSOR.preprocess(img, return_tensors="pt")["pixel_values"][0]
-        tensor_list.append(t)
-
-    images_stacked = torch.stack(tensor_list, dim=0)
+    # Process and stack all image tensors using process_images_demo
+    images_stacked = process_images_demo(images, _GEOCHAT_IMAGE_PROCESSOR)
     if torch.cuda.is_available():
         images_stacked = images_stacked.half().cuda()
 
@@ -242,9 +237,8 @@ def run_geochat_multi_image_inference(
         output_ids = _GEOCHAT_MODEL.generate(
             input_ids,
             images=images_stacked,
-            do_sample=True,
-            temperature=0.2,
-            max_new_tokens=512,
+            do_sample=False,
+            max_new_tokens=128,
             use_cache=True,
             stopping_criteria=[stopping_criteria],
         )
