@@ -13,15 +13,14 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-# Ensure ml/geochat paths are accessible for imports
+# Ensure ml/geochat/GeoChat (the actual GeoChat model package) is on sys.path.
+# grounding_parser.py lives alongside this file in satquery-service/ and is
+# imported as a normal sibling module — no cross-directory path hacks needed.
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 GEOCHAT_PATH = os.path.join(REPO_ROOT, "ml", "geochat", "GeoChat")
-ML_PATH = os.path.join(REPO_ROOT, "ml", "geochat")
 
 if GEOCHAT_PATH not in sys.path:
     sys.path.insert(0, GEOCHAT_PATH)
-if ML_PATH not in sys.path:
-    sys.path.insert(0, ML_PATH)
 
 from grounding_parser import parse_geochat_grounding
 
