@@ -168,7 +168,7 @@ export default function Index() {
             </p>
             <div className="mt-8 flex justify-center">
               <Button asChild size="lg" className="shadow-lg hover:shadow-primary/20">
-                <Link to="/analyze">
+                <Link to="/analyze" aria-label="Open SatQuery AI Workspace">
                   Try SatQuery AI
                   <ArrowUpRight aria-hidden="true" className="ml-1 h-4 w-4" />
                 </Link>
@@ -179,13 +179,14 @@ export default function Index() {
       </section>
 
       {/* Feature Cards Grid */}
-      <section className="relative z-10 border-y border-border bg-background px-6 py-12">
+      <section className="relative z-10 border-y border-border bg-background px-6 py-12" aria-label="Core Capabilities">
         <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
           {FEATURES.map(({ icon: Icon, label, detail, to }) => (
             <Link
               key={label}
               to={to}
               className="group flex items-start gap-4 border-l border-border pl-4 transition-colors hover:border-accent"
+              aria-label={`${label} - ${detail}`}
             >
               <Icon
                 aria-hidden="true"
@@ -202,7 +203,7 @@ export default function Index() {
       </section>
 
       {/* Featured Earth Event Section */}
-      <section className="relative z-10 bg-background px-6 py-16">
+      <section className="relative z-10 bg-background px-6 py-16" aria-label="Active Planetary Telemetry">
         <div className="mx-auto max-w-[1400px]">
           <div className="mb-6 flex items-center justify-between">
             <div>
@@ -217,16 +218,16 @@ export default function Index() {
               <button
                 type="button"
                 onClick={handlePrev}
-                aria-label="Previous event"
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-[#121212] text-foreground transition-colors hover:border-primary hover:bg-[#181818]"
+                aria-label="Previous telemetry event"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-[#121212] text-foreground transition-colors hover:border-primary hover:bg-[#181818] focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <button
                 type="button"
                 onClick={handleNext}
-                aria-label="Next event"
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-[#121212] text-foreground transition-colors hover:border-primary hover:bg-[#181818]"
+                aria-label="Next telemetry event"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-[#121212] text-foreground transition-colors hover:border-primary hover:bg-[#181818] focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -245,7 +246,7 @@ export default function Index() {
                 )}
                 <img
                   src={currentEvent.image}
-                  alt={currentEvent.title}
+                  alt={`${currentEvent.title} - ${currentEvent.category} satellite telemetry observation`}
                   onLoad={() => setImgLoaded(true)}
                   onError={() => {
                     setImgError(true);
@@ -293,6 +294,7 @@ export default function Index() {
                     size="sm"
                     onClick={handleAnalyzeEvent}
                     className="ml-auto bg-[#181818] border-border hover:border-primary"
+                    aria-label={`Query and analyze ${currentEvent.title}`}
                   >
                     Query Event
                     <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
