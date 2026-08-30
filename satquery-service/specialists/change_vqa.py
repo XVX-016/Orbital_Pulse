@@ -14,6 +14,7 @@ from geochat_engine import (
     run_geochat_multi_image_inference,
     run_geochat_inference,
     is_geochat_loaded,
+    load_image_robust,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,41 +47,10 @@ def run_change_vqa(images: List[Any], query: str, parameters: Optional[Dict[str,
             },
         }
 
-    def _load_image(item: Any) -> Optional[Image.Image]:
-        if isinstance(item, Image.Image):
-            return item.convert("RGB")
-        if isinstance(item, str):
-            try:
-                return Image.open(item).convert("RGB")
-            except Exception:
-                # Fallback for multi-band float GeoTIFF (.tif) satellite imagery via rasterio
-                try:
-                    import rasterio
-                    import numpy as np
-                    with rasterio.open(item) as src:
-                        arr = src.read()
-                        if arr.ndim == 3:
-                            # Take first 3 bands for RGB (or top 3)
-                            rgb = arr[:3, :, :].transpose(1, 2, 0)
-                        else:
-                            rgb = np.stack([arr] * 3, axis=-1)
-                        # Normalize to 0..255 uint8 if float
-                        if rgb.dtype != np.uint8:
-                            val_min, val_max = rgb.min(), rgb.max()
-                            if val_max > val_min:
-                                rgb = ((rgb - val_min) / (val_max - val_min) * 255.0).astype(np.uint8)
-                            else:
-                                rgb = (rgb * 255.0).clip(0, 255).astype(np.uint8)
-                        return Image.fromarray(rgb, mode="RGB")
-                except Exception as ex:
-                    logger.warning(f"Failed to load image from path '{item}': {ex}")
-                    return None
-        return None
-
-    # Filter/convert inputs to PIL.Image
+    # Filter/convert inputs to PIL.Image using the shared robust loader
     pil_images: List[Image.Image] = []
     for item in images:
-        loaded = _load_image(item)
+        loaded = load_image_robust(item)
         if loaded:
             pil_images.append(loaded)
 

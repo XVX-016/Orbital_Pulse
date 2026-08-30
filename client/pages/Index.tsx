@@ -226,13 +226,11 @@ export default function Index() {
             <Link
               key={label}
               to={to}
-              className="group flex items-start gap-4 border-l border-border pl-4 transition-colors hover:border-accent"
+              className="group flex items-start gap-4 rounded-lg border-l border-border pl-4 pr-3 py-3 transition-all duration-150 hover:border-accent hover:bg-card/60"
             >
-              <Icon
-                aria-hidden="true"
-                className="mt-0.5 h-5 w-5 shrink-0 text-accent transition-colors group-hover:text-primary"
-                strokeWidth={1.5}
-              />
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/10 border border-accent/20 text-accent transition-colors group-hover:bg-primary/10 group-hover:border-primary/30 group-hover:text-primary">
+                <Icon aria-hidden="true" className="h-4 w-4" strokeWidth={1.5} />
+              </div>
               <span>
                 <span className="block text-body font-semibold text-foreground">{label}</span>
                 <span className="mt-1 block text-caption text-muted-foreground">{detail}</span>
@@ -278,7 +276,7 @@ export default function Index() {
           <div className="relative overflow-hidden rounded-xl border border-border bg-[#121212] shadow-xl">
             <div className="flex flex-col md:flex-row items-stretch">
               {/* Event Image Thumbnail Container */}
-              <div className="relative w-full md:w-72 lg:w-80 shrink-0 min-h-[180px] bg-black/40 overflow-hidden">
+              <div className="relative w-full md:w-72 lg:w-80 shrink-0 h-52 bg-black/40 overflow-hidden">
                 {!imgLoaded && !imgError && (
                   <div className="absolute inset-0 animate-pulse bg-neutral-800/80 flex items-center justify-center">
                     <Globe2 className="h-8 w-8 text-neutral-600 animate-spin" />
@@ -304,9 +302,7 @@ export default function Index() {
               <div className="flex-1 p-6 sm:p-8 flex flex-col justify-between gap-6 z-10">
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-accent">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent/15 border border-accent/30 text-accent">
-                      <CategoryIcon className="h-4 w-4" />
-                    </div>
+                    <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
                     <span className="label-micro !mb-0 text-accent font-semibold tracking-wider">
                       {currentEvent.category} &bull; {currentEvent.date}
                     </span>

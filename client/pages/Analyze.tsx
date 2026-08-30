@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Play, Sparkles, Terminal, Activity, ArrowRightLeft, Radio, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target } from "lucide-react";
+import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -95,13 +95,14 @@ interface AnalyzeResponse {
 export default function Analyze() {
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get("query") || "Please detect and ground all major infrastructure, buildings, or structures in this aerial view.";
+  // True when the user arrived from an Earth Event deep-link (e.g. the home page "Query Event" button)
+  const arrivedViaEventLink = searchParams.has("query");
 
   const [query, setQuery] = useState(initialQuery);
   const [modality, setModality] = useState<Modality>("optical");
   const [temporal, setTemporal] = useState<Temporal>("single");
   const [taskHint, setTaskHint] = useState<TaskHint>("auto");
-  const [scenarioId, setScenarioId] = useState<ScenarioId>("deforestation");
-  const [comparisonPos, setComparisonPos] = useState(50);
+  const [scenarioId, setScenarioId] = useState<ScenarioId | null>(null);
 
   // File upload state for user-provided satellite images
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
@@ -176,7 +177,7 @@ export default function Analyze() {
             query: finalQuery,
             modality,
             temporal,
-            scenario: temporal === "bi-temporal" ? scenarioId : undefined,
+            scenario: temporal === "bi-temporal" && scenarioId ? scenarioId : undefined,
           }),
         });
       }
@@ -207,7 +208,7 @@ export default function Analyze() {
     URL.revokeObjectURL(url);
   };
 
-  const currentScenario = SCENARIOS[scenarioId];
+  const currentScenario = scenarioId ? SCENARIOS[scenarioId] : null;
   const isGroundingResult = Array.isArray(result?.visual_evidence);
   const groundingBoxes: GroundingBox[] = isGroundingResult ? (result.visual_evidence as GroundingBox[]) : [];
 
@@ -239,7 +240,8 @@ export default function Analyze() {
                 setModality(preset.modality);
                 setTemporal(preset.temporal);
                 setTaskHint(preset.taskHint);
-                if (preset.scenario) setScenarioId(preset.scenario);
+                // Always reset first so non-bi-temporal presets don't inherit a stale scenarioId
+                setScenarioId(preset.scenario ?? null);
               }}
               className="text-xs px-3 py-1.5 rounded-md border border-border bg-card/60 hover:bg-card hover:border-primary/50 text-secondary-foreground transition-all duration-150"
             >
@@ -263,6 +265,16 @@ export default function Analyze() {
                 placeholder="Ask SatQuery AI a question about your satellite imagery (e.g. 'Where are the runway and building structures in this aerial view?')..."
                 className="w-full rounded-lg border border-border bg-[#121212] px-4 py-3 text-body text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
+              {/* Event-link nudge: shown only when arriving from an Earth Event card with no image yet */}
+              {arrivedViaEventLink && uploadedFiles.length === 0 && (
+                <div className="mt-2 flex items-start gap-2.5 rounded-md border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-xs text-primary/80">
+                  <Upload className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    <span className="font-semibold">Image required to analyze this event.</span>{" "}
+                    Upload a satellite image of the region using the button below, then run the query.
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Task Specialist & Input Controls */}
@@ -324,7 +336,11 @@ export default function Analyze() {
                       <button
                         key={t}
                         type="button"
-                        onClick={() => setTemporal(t)}
+                        onClick={() => {
+                          setTemporal(t);
+                          // Clear any active scenario when leaving bi-temporal mode
+                          if (t === "single") setScenarioId(null);
+                        }}
                         className={cn(
                           "px-3 py-1 rounded font-medium capitalize transition-all",
                           temporal === t ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
@@ -337,7 +353,7 @@ export default function Analyze() {
                 </div>
 
                 {/* Scenario Selector (Bi-temporal mode) */}
-                {temporal === "bi-temporal" && uploadedFiles.length === 0 && (
+                {temporal === "bi-temporal" && (
                   <div>
                     <span className="label-micro block mb-1 text-muted-foreground">Scenario Preset</span>
                     <div className="flex bg-[#121212] p-1 rounded-md border border-border text-xs">
@@ -345,13 +361,13 @@ export default function Analyze() {
                         <button
                           key={id}
                           type="button"
-                          onClick={() => setScenarioId(id)}
+                          onClick={() => setScenarioId(id as ScenarioId)}
                           className={cn(
                             "px-3 py-1 rounded font-medium capitalize transition-all",
                             scenarioId === id ? "bg-accent text-accent-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                           )}
                         >
-                          {SCENARIOS[id].title}
+                          {SCENARIOS[id as ScenarioId].title}
                         </button>
                       ))}
                     </div>
@@ -372,11 +388,11 @@ export default function Analyze() {
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
+                  size="lg"
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-border bg-[#121212] hover:border-primary text-xs"
+                  className="border-border bg-[#121212] hover:border-primary"
                 >
-                  <Upload className="mr-1.5 h-3.5 w-3.5" />
+                  <Upload className="mr-2 h-4 w-4" />
                   Upload GeoTIFF / Image
                 </Button>
 
@@ -384,10 +400,17 @@ export default function Analyze() {
                   size="lg"
                   disabled={isRunning || !query.trim()}
                   onClick={handleRunAnalysis}
-                  className="shadow-lg hover:shadow-primary/20 min-w-[160px]"
+                  className={cn(
+                    "shadow-lg min-w-[160px] transition-opacity",
+                    isRunning ? "opacity-60 cursor-not-allowed" : "hover:shadow-primary/20"
+                  )}
                 >
-                  <Play className={cn("mr-2 h-4 w-4", isRunning && "animate-spin")} />
-                  {isRunning ? "Routing & Executing..." : "Run SatQuery AI"}
+                  {isRunning ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="mr-2 h-4 w-4" />
+                  )}
+                  {isRunning ? "Running..." : "Run SatQuery AI"}
                 </Button>
               </div>
             </div>
@@ -459,89 +482,47 @@ export default function Analyze() {
                   })}
                 </div>
               </div>
-            ) : temporal === "bi-temporal" ? (
-              <div className="relative min-h-[440px] overflow-hidden rounded-xl border border-border bg-card shadow-xl flex flex-col">
-                <div className="absolute top-4 left-4 z-10 bg-background/85 backdrop-blur-md px-3.5 py-1.5 rounded-md text-xs font-medium border border-border/50">
-                  {currentScenario.description}
-                </div>
-
-                <div className="relative flex-1 overflow-hidden group min-h-[380px]">
-                  {/* After Image */}
-                  <div
-                    className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-                    style={{ backgroundImage: `url(${currentScenario.afterImage})` }}
-                  />
-
-                  {/* Before Image (Clipped) */}
-                  <div
-                    className="absolute inset-y-0 left-0 bg-cover bg-center bg-no-repeat border-r-2 border-primary"
-                    style={{
-                      width: `${comparisonPos}%`,
-                      backgroundImage: `url(${currentScenario.beforeImage})`,
-                    }}
-                  />
-
-                  {/* Slider Handle */}
-                  <div
-                    className="absolute inset-y-0 flex items-center justify-center w-8 -ml-4 pointer-events-none"
-                    style={{ left: `${comparisonPos}%` }}
-                  >
-                    <div className="h-8 w-8 rounded-full bg-card border border-primary flex items-center justify-center shadow-lg text-primary">
-                      <ArrowRightLeft className="h-3.5 w-3.5" />
-                    </div>
-                  </div>
-
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={comparisonPos}
-                    onChange={(e) => setComparisonPos(Number(e.target.value))}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20"
-                    aria-label="Comparison slider"
-                  />
-                </div>
-
-                <div className="h-12 border-t border-border flex items-center justify-between px-6 bg-card/90">
-                  <span className="label-micro font-semibold text-muted-foreground">BEFORE</span>
-                  <ScanSearch className="h-4 w-4 text-primary/60" />
-                  <span className="label-micro font-semibold text-muted-foreground">AFTER</span>
-                </div>
-              </div>
             ) : (
-              <div className="relative min-h-[440px] rounded-xl border border-border bg-[#121212] overflow-hidden flex flex-col justify-center items-center p-4 shadow-xl">
-                <div className="relative w-full h-[400px] flex items-center justify-center bg-black/60 rounded-lg overflow-hidden">
-                  <img
-                    src="/hero-satellite.jpg"
-                    alt="Optical Satellite Imagery"
-                    className="w-full h-full object-cover filter brightness-90"
-                  />
-                  {/* Render Bounding Boxes Overlay on Default Canvas */}
-                  {groundingBoxes.map((box, idx) => {
-                    const [xmin, ymin, xmax, ymax] = box.box_normalized;
-                    return (
-                      <div
-                        key={idx}
-                        className="absolute border-2 border-red-500 bg-red-500/15 pointer-events-none transition-all"
-                        style={{
-                          left: `${xmin}%`,
-                          top: `${ymin}%`,
-                          width: `${xmax - xmin}%`,
-                          height: `${ymax - ymin}%`,
-                        }}
-                      >
-                        <span className="absolute -top-6 left-0 px-1.5 py-0.5 rounded bg-red-600 text-white font-mono text-[10px] whitespace-nowrap shadow">
-                          {box.label}
-                        </span>
-                      </div>
-                    );
-                  })}
+              /* Empty-state dropzone — single visual panel for all modes */
+              <div
+                className="relative min-h-[440px] rounded-xl border-2 border-dashed border-border bg-[#0d0d0d] overflow-hidden flex flex-col justify-center items-center gap-4 p-8 shadow-xl cursor-pointer group hover:border-primary/50 transition-colors duration-200"
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const files = Array.from(e.dataTransfer.files).filter((f) =>
+                    /\.(tif|tiff|png|jpg|jpeg)$/i.test(f.name)
+                  );
+                  if (files.length > 0) {
+                    setUploadedFiles((prev) => [...prev, ...files].slice(0, 4));
+                    setError(null);
+                  }
+                }}
+              >
+                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-card/60 text-muted-foreground group-hover:border-primary/40 group-hover:text-primary/70 transition-colors duration-200">
+                  <Upload className="h-7 w-7" />
                 </div>
-                <div className="mt-3 text-caption text-muted-foreground text-center">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent">
-                    <Radio className="h-3.5 w-3.5" /> {modality.toUpperCase()} SATELLITE CANVAS
-                  </span>
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-semibold text-foreground">
+                    {temporal === "bi-temporal"
+                      ? "Upload your own imagery"
+                      : "Upload an image to begin"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Drag &amp; drop a GeoTIFF, JPEG, or PNG file here, or click to browse
+                  </p>
                 </div>
+                {/* Scenario configured badge */}
+                {temporal === "bi-temporal" && currentScenario ? (
+                  <div className="mt-1 flex items-center gap-2 px-3 py-1.5 rounded-md bg-accent/10 border border-accent/30 text-accent text-xs font-medium">
+                    <ScanSearch className="h-3.5 w-3.5 shrink-0" />
+                    Scenario configured: {currentScenario.title}
+                  </div>
+                ) : temporal === "bi-temporal" ? (
+                  <p className="text-[11px] font-mono text-muted-foreground/50 mt-1">
+                    No scenario selected — use the Scenario Preset buttons above to configure
+                  </p>
+                ) : null}
               </div>
             )}
 
@@ -588,9 +569,8 @@ export default function Analyze() {
 
               <div className="min-h-[140px]">
                 {isRunning ? (
-                  <div className="flex flex-col items-center justify-center h-36 space-y-3 text-muted-foreground">
-                    <Activity className="h-6 w-6 animate-spin text-primary" />
-                    <p className="text-xs font-mono">Routing task &amp; executing inference...</p>
+                  <div className="flex items-center justify-center h-36">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
                 ) : result ? (
                   <div className="space-y-4">

@@ -256,3 +256,74 @@ def run_geochat_multi_image_inference(
 
     return outputs, visual_evidence, duration
 
+
+def load_image_robust(source) -> Optional[Image.Image]:
+    """
+    Shared PIL-first / rasterio-fallback image loader.
+
+    Accepts:
+        source: str   — absolute or relative file-system path
+                bytes — raw file contents from an HTTP upload
+                PIL.Image.Image — passed through as-is
+
+    Returns a PIL Image in RGB mode, or None on failure.
+
+    The rasterio fallback handles multi-band float GeoTIFF satellite imagery
+    that plain PIL cannot decode.  When *source* is raw bytes and PIL fails,
+    the bytes are written to a NamedTemporaryFile so rasterio can open them
+    by path (rasterio cannot read BytesIO directly).
+    """
+    import io as _io
+    import tempfile
+    import numpy as np
+
+    # ── 1. PIL direct attempt ────────────────────────────────────────────────
+    try:
+        if isinstance(source, (bytes, bytearray)):
+            return Image.open(_io.BytesIO(source)).convert("RGB")
+        elif isinstance(source, str):
+            return Image.open(source).convert("RGB")
+        elif isinstance(source, Image.Image):
+            return source.convert("RGB")
+    except Exception:
+        pass  # fall through to rasterio
+
+    # ── 2. Rasterio fallback for multi-band / float GeoTIFF ─────────────────
+    try:
+        import rasterio
+
+        def _rasterio_from_path(path: str) -> Optional[Image.Image]:
+            with rasterio.open(path) as src:
+                arr = src.read()  # shape: (bands, H, W)
+                if arr.ndim == 3:
+                    rgb = arr[:3, :, :].transpose(1, 2, 0)
+                else:
+                    rgb = np.stack([arr] * 3, axis=-1)
+                if rgb.dtype != np.uint8:
+                    v_min, v_max = float(rgb.min()), float(rgb.max())
+                    if v_max > v_min:
+                        rgb = ((rgb - v_min) / (v_max - v_min) * 255.0).astype(np.uint8)
+                    else:
+                        rgb = np.zeros_like(rgb, dtype=np.uint8)
+                return Image.fromarray(rgb, mode="RGB")
+
+        if isinstance(source, str):
+            return _rasterio_from_path(source)
+
+        if isinstance(source, (bytes, bytearray)):
+            # rasterio requires a real file path — write to a named temp file
+            with tempfile.NamedTemporaryFile(suffix=".tif", delete=False) as tmp:
+                tmp.write(source)
+                tmp_path = tmp.name
+            try:
+                return _rasterio_from_path(tmp_path)
+            finally:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+
+    except Exception as ex:
+        logger.warning(f"load_image_robust rasterio fallback failed: {ex}")
+
+    return None

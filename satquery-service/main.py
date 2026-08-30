@@ -12,6 +12,7 @@ import torch
 from PIL import Image
 
 from controller import route_and_execute
+from geochat_engine import load_image_robust
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -94,12 +95,11 @@ async def analyze_query(request: Request):
             val = form[key]
             if hasattr(val, "filename") and val.filename:
                 contents = await val.read()
-                import io
-                try:
-                    img = Image.open(io.BytesIO(contents)).convert("RGB")
+                img = load_image_robust(contents)
+                if img is not None:
                     images_payload.append(img)
-                except Exception as img_err:
-                    logger.warning(f"Could not parse uploaded file as PIL Image: {img_err}")
+                else:
+                    logger.warning(f"Could not decode uploaded file '{val.filename}' via PIL or rasterio — skipping.")
 
     if not user_query:
         raise HTTPException(status_code=400, detail="Query string is required.")
@@ -109,11 +109,11 @@ async def analyze_query(request: Request):
         before_path = f"data/{scenario}/before.tif"
         after_path = f"data/{scenario}/after.tif"
         if os.path.exists(before_path) and os.path.exists(after_path):
-            try:
-                images_payload = [Image.open(before_path).convert("RGB"), Image.open(after_path).convert("RGB")]
-            except Exception:
-                images_payload = [before_path, after_path]
-            temporal = "bi-temporal"
+            before_img = load_image_robust(before_path)
+            after_img = load_image_robust(after_path)
+            if before_img and after_img:
+                images_payload = [before_img, after_img]
+                temporal = "bi-temporal"
 
     # Route through controller
     response = route_and_execute(
