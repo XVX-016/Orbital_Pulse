@@ -68,7 +68,7 @@ export default function Globe() {
       )}
 
       {/* Top Bar: Search Bar with Autocomplete & Active Status */}
-      <div className="pointer-events-auto absolute left-1/2 top-16 z-20 -translate-x-1/2 flex flex-col items-center gap-2">
+      <div className="pointer-events-auto absolute left-1/2 top-24 z-20 -translate-x-1/2 flex flex-col items-center gap-2">
         <div className="relative">
           <label className="group flex h-11 w-[320px] sm:w-[380px] items-center overflow-hidden rounded-md border border-border bg-card/90 backdrop-blur-md transition-all duration-200 focus-within:border-accent">
             <Search aria-hidden="true" className="ml-3 h-4 w-4 shrink-0 text-muted-foreground" />
