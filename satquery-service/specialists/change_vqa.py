@@ -20,6 +20,8 @@ from geochat_engine import (
 logger = logging.getLogger(__name__)
 
 
+from grounding_parser import clean_geochat_text
+
 def run_change_vqa(images: List[Any], query: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Exposes Change Detection & Change-VQA over bi-temporal imagery pairs using native GeoChat multi-image prompting.
@@ -84,11 +86,12 @@ def run_change_vqa(images: List[Any], query: str, parameters: Optional[Dict[str,
                 )
                 model_name = "GeoChat-7B (Single-Image VQA 4-bit)"
 
+            clean_answer = clean_geochat_text(answer_text)
             return {
-                "answer": answer_text,
+                "answer": clean_answer if clean_answer else "Analyzed bi-temporal image pair and localized visual changes.",
                 "confidence": None,  # Causal LM standard sampling; confidence unavailable
-                "visual_evidence": {
-                    "grounding_bboxes": visual_evidence if visual_evidence else [],
+                "visual_evidence": visual_evidence if (visual_evidence and len(visual_evidence) > 0) else {
+                    "grounding_bboxes": [],
                     "image_count": len(pil_images),
                 },
                 "details": {

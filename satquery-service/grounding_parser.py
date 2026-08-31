@@ -11,6 +11,21 @@ import re
 from typing import Dict, List, Any, Optional
 
 
+def clean_geochat_text(response_text: str) -> str:
+    """Strips raw GeoChat XML tags (<p>...</p>), coordinate tokens ({<y1><x1><y2><x2>|<score>}), and <delim> from text."""
+    if not response_text:
+        return ""
+    # Remove coordinate token structures: {<69><51><73><75>|<1>}
+    text = re.sub(r"\{<\d+><\d+><\d+><\d+>\|[^}]+\}", "", response_text)
+    # Remove delim tokens
+    text = re.sub(r"<delim>", "", text)
+    # Remove XML region tags: <p>label</p> -> label
+    text = re.sub(r"<p>(.*?)</p>", r"\1", text)
+    # Clean multiple spaces and trailing whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def parse_geochat_grounding(
     response_text: str,
     img_width: Optional[int] = None,

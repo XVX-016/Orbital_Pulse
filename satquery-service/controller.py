@@ -40,7 +40,7 @@ def classify_task(
         return "change_vqa"
     
     # Rule 3: Grounding / spatial localization keywords -> Grounding / Captioning
-    grounding_keywords = ["where", "locate", "find", "highlight", "bounding box", "detect", "point out", "segment"]
+    grounding_keywords = ["where", "locate", "find", "highlight", "bounding box", "detect", "ground", "point out", "segment", "identify", "infrastructure", "object"]
     if any(kw in q_lower for kw in grounding_keywords):
         return "grounding"
         

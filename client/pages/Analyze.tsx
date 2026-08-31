@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target } from "lucide-react";
+import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +23,7 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
   deforestation: {
     id: "deforestation",
     title: "Deforestation",
-    description: "Rondônia, Brazil — Sentinel-2 L2A Bi-Temporal Pair",
+    description: "Rondônia, Brazil — Sentinel-2 L2A, 2019 vs 2023",
     beforeImage: `${AI_SERVICE_URL}/images/deforestation-before.jpg`,
     afterImage: `${AI_SERVICE_URL}/images/deforestation-after.jpg`,
   },
@@ -39,7 +39,7 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
 const PRESET_QUERIES = [
   {
     label: "Deforestation Analysis",
-    query: "Identify forest canopy loss and calculate surface change percentage between before and after Sentinel-2 imagery",
+    query: "What deforestation or forest cover loss is visible in these before and after images?",
     modality: "optical" as Modality,
     temporal: "bi-temporal" as Temporal,
     taskHint: "change" as TaskHint,
@@ -90,6 +90,71 @@ interface AnalyzeResponse {
     bounding_boxes?: any[];
   } | null;
   execution_trace: ExecutionTrace;
+  preview_image_base64?: string;
+  preview_images_base64?: string[];
+}
+
+function ImageComparisonViewer({ beforeImage, afterImage, title }: { beforeImage: string; afterImage: string; title?: string }) {
+  const [comparison, setComparison] = useState(50);
+
+  return (
+    <div className="relative min-h-[440px] rounded-xl border border-border bg-[#121212] overflow-hidden flex flex-col shadow-xl group">
+      {title && (
+        <div className="z-20 bg-background/90 backdrop-blur-md px-3.5 py-2 border-b border-border text-xs font-semibold text-foreground flex items-center gap-2">
+          <ScanSearch className="h-3.5 w-3.5 text-primary" />
+          <span>{title}</span>
+        </div>
+      )}
+      <div className="relative w-full h-[400px] bg-black overflow-hidden flex-1">
+        {/* After Image (Background) */}
+        <img
+          src={afterImage}
+          alt="After / Post-event Satellite Imagery"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+
+        {/* Before Image (Foreground, clipped) */}
+        <div
+          className="absolute inset-y-0 left-0 overflow-hidden border-r-2 border-primary shadow-[4px_0_12px_rgba(0,0,0,0.6)]"
+          style={{ width: `${comparison}%` }}
+        >
+          <img
+            src={beforeImage}
+            alt="Before / Pre-event Satellite Imagery"
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ width: `${(100 / Math.max(comparison, 0.1)) * 100}%`, maxWidth: "none" }}
+          />
+        </div>
+
+        {/* Slider Handle — translateX(-50%) keeps handle centred on the divider at all positions */}
+        <div
+          className="absolute inset-y-0 flex items-center justify-center pointer-events-none z-10"
+          style={{ left: `${comparison}%`, transform: "translateX(-50%)" }}
+        >
+          <div className="h-9 w-9 rounded-full bg-card/95 border border-primary flex items-center justify-center shadow-[0_0_15px_rgba(0,0,0,0.8)] text-primary transition-transform group-hover:scale-110">
+            <ArrowRightLeft className="h-4 w-4" />
+          </div>
+        </div>
+
+        {/* Range Input Control */}
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={comparison}
+          onChange={(e) => setComparison(Number(e.target.value))}
+          aria-label="Before and after comparison position slider"
+          className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20"
+        />
+      </div>
+
+      <div className="h-10 w-full border-t border-border flex items-center justify-between px-6 bg-card/90 backdrop-blur-sm z-10">
+        <span className="label-micro font-semibold tracking-wider text-muted-foreground">BEFORE (PRE-EVENT)</span>
+        <ScanSearch aria-hidden="true" className="h-4 w-4 text-primary/60" />
+        <span className="label-micro font-semibold tracking-wider text-muted-foreground">AFTER (POST-EVENT)</span>
+      </div>
+    </div>
+  );
 }
 
 export default function Analyze() {
@@ -135,6 +200,18 @@ export default function Analyze() {
 
   const handleRemoveFile = (index: number) => {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
+    // Also clear stale result so the panel resets when a file is removed
+    setResult(null);
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  /** Wipe uploaded files + previous result when the user changes modes / presets. */
+  const clearWorkspace = () => {
+    setUploadedFiles([]);
+    setResult(null);
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleRunAnalysis = async () => {
@@ -236,11 +313,11 @@ export default function Analyze() {
               key={preset.label}
               type="button"
               onClick={() => {
+                clearWorkspace();
                 setQuery(preset.query);
                 setModality(preset.modality);
                 setTemporal(preset.temporal);
                 setTaskHint(preset.taskHint);
-                // Always reset first so non-bi-temporal presets don't inherit a stale scenarioId
                 setScenarioId(preset.scenario ?? null);
               }}
               className="text-xs px-3 py-1.5 rounded-md border border-border bg-card/60 hover:bg-card hover:border-primary/50 text-secondary-foreground transition-all duration-150"
@@ -316,7 +393,7 @@ export default function Analyze() {
                       <button
                         key={m}
                         type="button"
-                        onClick={() => setModality(m)}
+                        onClick={() => { setModality(m); clearWorkspace(); }}
                         className={cn(
                           "px-3 py-1 rounded font-medium capitalize transition-all",
                           modality === m ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
@@ -338,7 +415,7 @@ export default function Analyze() {
                         type="button"
                         onClick={() => {
                           setTemporal(t);
-                          // Clear any active scenario when leaving bi-temporal mode
+                          clearWorkspace();
                           if (t === "single") setScenarioId(null);
                         }}
                         className={cn(
@@ -361,7 +438,15 @@ export default function Analyze() {
                         <button
                           key={id}
                           type="button"
-                          onClick={() => setScenarioId(id as ScenarioId)}
+                          onClick={() => {
+                            setScenarioId(id as ScenarioId);
+                            setTaskHint("change");
+                            if (id === "deforestation") {
+                              setQuery("What deforestation or forest cover loss is visible in these before and after images?");
+                            } else if (id === "disaster") {
+                              setQuery("What flood damage or structural changes are visible between the pre-event and post-event images?");
+                            }
+                          }}
                           className={cn(
                             "px-3 py-1 rounded font-medium capitalize transition-all",
                             scenarioId === id ? "bg-accent text-accent-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
@@ -452,15 +537,84 @@ export default function Analyze() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Left Column: Visual Evidence / Canvas Viewer with Bounding Box Overlay */}
           <div className="lg:col-span-7 space-y-6">
-            {uploadedFiles.length > 0 ? (
+            {temporal === "bi-temporal" && result?.preview_images_base64 && result.preview_images_base64.length >= 2 ? (
+              <ImageComparisonViewer
+                beforeImage={result.preview_images_base64[0]}
+                afterImage={result.preview_images_base64[1]}
+                title={uploadedFiles.length === 0 ? currentScenario?.description : undefined}
+              />
+            ) : temporal === "bi-temporal" && uploadedFiles.length >= 2 && !result ? (
+              /* Bi-temporal TIF staged — browser can't render TIFF blobs, wait for backend preview */
+              <div className="relative min-h-[440px] rounded-xl border border-border bg-[#0d0d0d] overflow-hidden flex flex-col justify-center items-center gap-5 shadow-xl">
+                <div className="flex flex-col items-center gap-3 text-center px-8">
+                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                    <ScanSearch className="h-6 w-6 text-primary" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">{uploadedFiles.length} GeoTIFF files staged</p>
+                  <p className="text-xs text-muted-foreground max-w-xs">
+                    TIFF images cannot be previewed in the browser. Run the analysis to generate a visual comparison.
+                  </p>
+                  <div className="flex gap-2 flex-wrap justify-center mt-1">
+                    {uploadedFiles.map((f, i) => (
+                      <span key={i} className="text-[10px] px-2 py-1 rounded bg-card border border-border text-muted-foreground font-mono">{f.name}</span>
+                    ))}
+                  </div>
+                </div>
+                <div className="absolute bottom-0 w-full h-10 border-t border-border flex items-center justify-between px-6 bg-card/90">
+                  <span className="label-micro font-semibold tracking-wider text-muted-foreground">BEFORE (PRE-EVENT)</span>
+                  <span className="label-micro font-semibold tracking-wider text-muted-foreground">AFTER (POST-EVENT)</span>
+                </div>
+              </div>
+            ) : uploadedFiles.length > 0 ? (
+              <div className="relative min-h-[440px] rounded-xl border border-border bg-[#121212] overflow-hidden flex flex-col justify-center items-center p-4 shadow-xl">
+                <div className="relative w-full h-[400px] flex items-center justify-center bg-black/60 rounded-lg overflow-hidden">
+                  {/* Only render preview from backend base64 — raw TIF blob URLs cannot be rendered by browsers */}
+                  {result?.preview_image_base64 ? (
+                    <img
+                      src={result.preview_image_base64}
+                      alt="User Uploaded Satellite Source"
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-3 text-center px-6">
+                      <ScanSearch className="h-8 w-8 text-primary/40" />
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-semibold text-foreground">{uploadedFiles[0].name}</span> staged —
+                        TIFF preview will appear after running the analysis.
+                      </p>
+                    </div>
+                  )}
+                  {/* Render Bounding Boxes for Uploaded Image */}
+                  {result?.preview_image_base64 && groundingBoxes.map((box, idx) => {
+                    const [xmin, ymin, xmax, ymax] = box.box_normalized;
+                    return (
+                      <div
+                        key={idx}
+                        className="absolute border-2 border-red-500 bg-red-500/10 pointer-events-none transition-all"
+                        style={{
+                          left: `${xmin}%`,
+                          top: `${ymin}%`,
+                          width: `${xmax - xmin}%`,
+                          height: `${ymax - ymin}%`,
+                        }}
+                      >
+                        <span className="absolute -top-6 left-0 px-1.5 py-0.5 rounded bg-red-600 text-white font-mono text-[10px] whitespace-nowrap shadow">
+                          {box.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : result?.preview_image_base64 ? (
               <div className="relative min-h-[440px] rounded-xl border border-border bg-[#121212] overflow-hidden flex flex-col justify-center items-center p-4 shadow-xl">
                 <div className="relative w-full h-[400px] flex items-center justify-center bg-black/60 rounded-lg overflow-hidden">
                   <img
-                    src={filePreviewUrls[0]}
-                    alt="User Uploaded Satellite Source"
+                    src={result.preview_image_base64}
+                    alt="Satellite Source Preview"
                     className="max-h-full max-w-full object-contain"
                   />
-                  {/* Render Bounding Boxes for Uploaded Image */}
+                  {/* Render Bounding Boxes for Single Preview */}
                   {groundingBoxes.map((box, idx) => {
                     const [xmin, ymin, xmax, ymax] = box.box_normalized;
                     return (
