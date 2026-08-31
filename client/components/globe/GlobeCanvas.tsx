@@ -102,19 +102,22 @@ export default function GlobeCanvas() {
     }
 
     // Default Globe Restyling
-    scene.backgroundColor = Color.fromCssColorString("hsl(0, 0%, 4%)");
+    scene.backgroundColor = Color.fromCssColorString("hsl(220, 20%, 4%)");
     if (scene.skyBox) {
-      scene.skyBox.show = false;
+      scene.skyBox.show = true;
     }
 
-    scene.globe.baseColor = Color.fromCssColorString("hsl(0, 0%, 4%)");
+    scene.globe.baseColor = Color.fromCssColorString("hsl(220, 20%, 6%)");
     scene.globe.showGroundAtmosphere = true;
-    scene.globe.enableLighting = false;
+    scene.globe.enableLighting = true;
+    scene.globe.lightingFadeOutDistance = 10000000.0;
+    scene.globe.lightingFadeInDistance = 20000000.0;
 
     if (scene.skyAtmosphere) {
       scene.skyAtmosphere.show = true;
-      scene.skyAtmosphere.brightnessShift = -0.4;
-      scene.skyAtmosphere.hueShift = -0.1;
+      scene.skyAtmosphere.brightnessShift = 0.0;
+      scene.skyAtmosphere.hueShift = 0.0;
+      scene.skyAtmosphere.saturationShift = 0.1;
     }
 
     // Setup NASA GIBS WMTS high-resolution Earth satellite imagery layer

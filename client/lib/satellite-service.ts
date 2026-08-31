@@ -1,5 +1,7 @@
 import * as satellite from "satellite.js";
 
+export type SatelliteType = "optical" | "sar" | "weather" | "comms";
+
 export interface SatelliteData {
   id: string;
   name: string;
@@ -7,6 +9,8 @@ export interface SatelliteData {
   line1: string;
   line2: string;
   satrec: satellite.SatRec;
+  type: SatelliteType;
+  isISRO: boolean;
   latitude?: number;
   longitude?: number;
   altitude?: number; // in km
@@ -20,8 +24,62 @@ export interface SatellitePosition {
   velocity: number;  // km/s
 }
 
+export function getSatelliteCategory(name: string): { type: SatelliteType; isISRO: boolean } {
+  const upper = name.toUpperCase();
+
+  const isISRO =
+    upper.includes("ISRO") ||
+    upper.includes("CARTOSAT") ||
+    upper.includes("RISAT") ||
+    upper.includes("OCEANSAT") ||
+    upper.includes("EOS") ||
+    upper.includes("INSAT") ||
+    upper.includes("GSAT") ||
+    upper.includes("RESOURCESAT");
+
+  let type: SatelliteType = "optical";
+
+  if (
+    upper.includes("SENTINEL-1") ||
+    upper.includes("RISAT") ||
+    upper.includes("ENVISAT") ||
+    upper.includes("SAR") ||
+    upper.includes("RADARSAT")
+  ) {
+    type = "sar";
+  } else if (
+    upper.includes("GOES") ||
+    upper.includes("NOAA") ||
+    upper.includes("METEOSAT") ||
+    upper.includes("INSAT") ||
+    upper.includes("WEATHER")
+  ) {
+    type = "weather";
+  } else if (
+    upper.includes("STARLINK") ||
+    upper.includes("GPS") ||
+    upper.includes("ISS") ||
+    upper.includes("CSS") ||
+    upper.includes("TIANGONG") ||
+    upper.includes("GSAT") ||
+    upper.includes("COMMS")
+  ) {
+    type = "comms";
+  } else {
+    type = "optical";
+  }
+
+  return { type, isISRO };
+}
+
 // Hardcoded subset of ~20 well-known satellites for immediate offline verification & fallback
-export const HARDCODED_TLE_STRING = `ISS (ZARYA)
+export const HARDCODED_TLE_STRING = `EOS-06 (OCEANSAT-3)
+1 54361U 22158A   24045.51000000  .00000080  00000+0  65000-4 0  9991
+2 54361  98.4000 110.2000 0001200  85.0000 275.0000 14.32000000 6500
+CARTOSAT-3
+1 44804U 19081A   24045.50500000  .00000075  00000+0  58000-4 0  9992
+2 44804  97.5000 112.5000 0001100  80.0000 280.0000 14.85000000 4800
+ISS (ZARYA)
 1 25544U 98067A   24045.54921609  .00014761  00000+0  26477-3 0  9997
 2 25544  51.6416 288.7525 0004543  90.7589 313.2796 15.49842456439363
 HST (HUBBLE)
@@ -78,9 +136,6 @@ LANDSAT 8
 LANDSAT 9
 1 49260U 21088A   24045.51940124  .00000092  00000+0  67120-4 0  9993
 2 49260  98.2104 126.1240 0001200  87.1240 273.0124 14.57109500234120
-ENVISAT
-1 27386U 02009A   24045.52104102  .00000035  00000+0  25140-4 0  9990
-2 27386  98.3412 130.4120 0001050  80.4120 279.7120 14.35412010125412
 `;
 
 export function propagateSatellite(
@@ -133,6 +188,28 @@ export function propagateSatellite(
   }
 }
 
+export function computePastOrbitPositions(
+  satrec: satellite.SatRec,
+  now: Date = new Date(),
+  durationMinutes: number = 20,
+  stepSeconds: number = 45
+): Array<{ latitude: number; longitude: number; altitude: number }> {
+  const positions: Array<{ latitude: number; longitude: number; altitude: number }> = [];
+  const totalSeconds = durationMinutes * 60;
+  for (let s = totalSeconds; s >= 0; s -= stepSeconds) {
+    const pastDate = new Date(now.getTime() - s * 1000);
+    const pos = propagateSatellite(satrec, pastDate);
+    if (pos) {
+      positions.push({
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        altitude: pos.altitude,
+      });
+    }
+  }
+  return positions;
+}
+
 export function parseTLECatalog(tleText: string): SatelliteData[] {
   const lines = tleText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const satellites: SatelliteData[] = [];
@@ -149,6 +226,7 @@ export function parseTLECatalog(tleText: string): SatelliteData[] {
       try {
         const satrec = satellite.twoline2satrec(line1, line2);
         if (satrec && satrec.error === 0) {
+          const { type, isISRO } = getSatelliteCategory(name);
           satellites.push({
             id: noradId,
             name,
@@ -156,6 +234,8 @@ export function parseTLECatalog(tleText: string): SatelliteData[] {
             line1,
             line2,
             satrec,
+            type,
+            isISRO,
           });
         }
       } catch (err) {

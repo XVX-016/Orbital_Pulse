@@ -57,14 +57,16 @@ export default function Globe() {
     const noradId = selectedSat?.noradId || "—";
     const altitude = selectedPos ? `${selectedPos.altitude.toFixed(1)} km` : "—";
     const velocity = selectedPos ? `${selectedPos.velocity.toFixed(2)} km/s` : "—";
-    const country = "—";
+    const typeLabel = selectedSat ? selectedSat.type.toUpperCase() : "—";
+    const country = selectedSat ? (selectedSat.isISRO ? "India (ISRO)" : "International") : "—";
 
     return [
       ["Satellite Name", name],
       ["NORAD ID", noradId],
+      ["Sensor Type", typeLabel],
+      ["Operator", country],
       ["Altitude", altitude],
       ["Velocity", velocity],
-      ["Country", country],
     ];
   }, [selectedSat, selectedPos]);
 
@@ -137,6 +139,51 @@ export default function Globe() {
           <span>{satellites.length} satellites loaded ({catalogSource})</span>
         </div>
       </div>
+
+      {/* Satellite Classification Legend */}
+      {layersVisible && (
+        <div className="pointer-events-auto absolute top-24 left-6 z-20 flex flex-col gap-2 rounded-lg border border-border/80 bg-card/85 p-3 text-xs backdrop-blur-md shadow-xl w-44">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Classification
+          </div>
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-blue-500"></span>
+              <span className="text-foreground">Optical</span>
+            </div>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {satellites.filter((s) => s.type === "optical" && !s.isISRO).length}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>
+              <span className="text-foreground">SAR Radar</span>
+            </div>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {satellites.filter((s) => s.type === "sar" && !s.isISRO).length}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
+              <span className="text-foreground">Weather</span>
+            </div>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {satellites.filter((s) => s.type === "weather" && !s.isISRO).length}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-gray-400"></span>
+              <span className="text-foreground">Comms / ISS</span>
+            </div>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              {satellites.filter((s) => s.type === "comms" && !s.isISRO).length}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Bottom Control Toolbar */}
       <div className="pointer-events-auto absolute bottom-8 left-6 z-20 flex items-center gap-2">
