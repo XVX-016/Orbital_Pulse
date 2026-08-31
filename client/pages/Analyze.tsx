@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Play, Sparkles, Terminal, Activity, ArrowRightLeft, Radio, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target } from "lucide-react";
+import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -23,7 +23,7 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
   deforestation: {
     id: "deforestation",
     title: "Deforestation",
-    description: "Rondônia, Brazil — Sentinel-2 L2A Bi-Temporal Pair",
+    description: "Rondônia, Brazil — Sentinel-2 L2A, 2019 vs 2023",
     beforeImage: `${AI_SERVICE_URL}/images/deforestation-before.jpg`,
     afterImage: `${AI_SERVICE_URL}/images/deforestation-after.jpg`,
   },
@@ -39,7 +39,7 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
 const PRESET_QUERIES = [
   {
     label: "Deforestation Analysis",
-    query: "Identify forest canopy loss and calculate surface change percentage between before and after Sentinel-2 imagery",
+    query: "What deforestation or forest cover loss is visible in these before and after images?",
     modality: "optical" as Modality,
     temporal: "bi-temporal" as Temporal,
     taskHint: "change" as TaskHint,
@@ -90,18 +90,84 @@ interface AnalyzeResponse {
     bounding_boxes?: any[];
   } | null;
   execution_trace: ExecutionTrace;
+  preview_image_base64?: string;
+  preview_images_base64?: string[];
+}
+
+function ImageComparisonViewer({ beforeImage, afterImage, title }: { beforeImage: string; afterImage: string; title?: string }) {
+  const [comparison, setComparison] = useState(50);
+
+  return (
+    <div className="relative min-h-[440px] rounded-xl border border-border bg-[#121212] overflow-hidden flex flex-col shadow-xl group">
+      {title && (
+        <div className="z-20 bg-background/90 backdrop-blur-md px-3.5 py-2 border-b border-border text-xs font-semibold text-foreground flex items-center gap-2">
+          <ScanSearch className="h-3.5 w-3.5 text-primary" />
+          <span>{title}</span>
+        </div>
+      )}
+      <div className="relative w-full h-[400px] bg-black overflow-hidden flex-1">
+        {/* After Image (Background) */}
+        <img
+          src={afterImage}
+          alt="After / Post-event Satellite Imagery"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+
+        {/* Before Image (Foreground, clipped) */}
+        <div
+          className="absolute inset-y-0 left-0 overflow-hidden border-r-2 border-primary shadow-[4px_0_12px_rgba(0,0,0,0.6)]"
+          style={{ width: `${comparison}%` }}
+        >
+          <img
+            src={beforeImage}
+            alt="Before / Pre-event Satellite Imagery"
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ width: `${(100 / Math.max(comparison, 0.1)) * 100}%`, maxWidth: "none" }}
+          />
+        </div>
+
+        {/* Slider Handle — translateX(-50%) keeps handle centred on the divider at all positions */}
+        <div
+          className="absolute inset-y-0 flex items-center justify-center pointer-events-none z-10"
+          style={{ left: `${comparison}%`, transform: "translateX(-50%)" }}
+        >
+          <div className="h-9 w-9 rounded-full bg-card/95 border border-primary flex items-center justify-center shadow-[0_0_15px_rgba(0,0,0,0.8)] text-primary transition-transform group-hover:scale-110">
+            <ArrowRightLeft className="h-4 w-4" />
+          </div>
+        </div>
+
+        {/* Range Input Control */}
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={comparison}
+          onChange={(e) => setComparison(Number(e.target.value))}
+          aria-label="Before and after comparison position slider"
+          className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20"
+        />
+      </div>
+
+      <div className="h-10 w-full border-t border-border flex items-center justify-between px-6 bg-card/90 backdrop-blur-sm z-10">
+        <span className="label-micro font-semibold tracking-wider text-muted-foreground">BEFORE (PRE-EVENT)</span>
+        <ScanSearch aria-hidden="true" className="h-4 w-4 text-primary/60" />
+        <span className="label-micro font-semibold tracking-wider text-muted-foreground">AFTER (POST-EVENT)</span>
+      </div>
+    </div>
+  );
 }
 
 export default function Analyze() {
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get("query") || "Please detect and ground all major infrastructure, buildings, or structures in this aerial view.";
+  // True when the user arrived from an Earth Event deep-link (e.g. the home page "Query Event" button)
+  const arrivedViaEventLink = searchParams.has("query");
 
   const [query, setQuery] = useState(initialQuery);
   const [modality, setModality] = useState<Modality>("optical");
   const [temporal, setTemporal] = useState<Temporal>("single");
   const [taskHint, setTaskHint] = useState<TaskHint>("auto");
-  const [scenarioId, setScenarioId] = useState<ScenarioId>("deforestation");
-  const [comparisonPos, setComparisonPos] = useState(50);
+  const [scenarioId, setScenarioId] = useState<ScenarioId | null>(null);
 
   // File upload state for user-provided satellite images
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
@@ -109,9 +175,8 @@ export default function Analyze() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [isRunning, setIsRunning] = useState(false);
-  const [loadingStage, setLoadingStage] = useState<number>(1);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
-  const [error, setError] = useState<{ title: string; message: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const q = searchParams.get("query");
@@ -125,54 +190,28 @@ export default function Analyze() {
     return () => urls.forEach((u) => URL.revokeObjectURL(u));
   }, [uploadedFiles]);
 
-  // Animate loading stages while inference is in flight
-  useEffect(() => {
-    let timer1: NodeJS.Timeout;
-    let timer2: NodeJS.Timeout;
-    if (isRunning) {
-      setLoadingStage(1);
-      timer1 = setTimeout(() => setLoadingStage(2), 1800);
-      timer2 = setTimeout(() => setLoadingStage(3), 4200);
-    }
-    return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-    };
-  }, [isRunning]);
-
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const filesArr = Array.from(e.target.files);
-      const validExtensions = ["tif", "tiff", "png", "jpg", "jpeg", "webp"];
-      const validFiles: File[] = [];
-      const invalidFiles: string[] = [];
-
-      for (const file of filesArr) {
-        const ext = file.name.split(".").pop()?.toLowerCase();
-        if (ext && validExtensions.includes(ext)) {
-          validFiles.push(file);
-        } else {
-          invalidFiles.push(file.name);
-        }
-      }
-
-      if (invalidFiles.length > 0) {
-        setError({
-          title: "Unsupported File Format",
-          message: `The file(s) "${invalidFiles.join(", ")}" are not supported. Please upload GeoTIFF (.tif, .tiff) or standard satellite imagery (.png, .jpg, .jpeg).`,
-        });
-      } else {
-        setError(null);
-      }
-
-      if (validFiles.length > 0) {
-        setUploadedFiles((prev) => [...prev, ...validFiles].slice(0, 4));
-      }
+      setUploadedFiles((prev) => [...prev, ...filesArr].slice(0, 4));
+      setError(null);
     }
   };
 
   const handleRemoveFile = (index: number) => {
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
+    // Also clear stale result so the panel resets when a file is removed
+    setResult(null);
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  /** Wipe uploaded files + previous result when the user changes modes / presets. */
+  const clearWorkspace = () => {
+    setUploadedFiles([]);
+    setResult(null);
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleRunAnalysis = async () => {
@@ -180,9 +219,6 @@ export default function Analyze() {
     setIsRunning(true);
     setError(null);
     setResult(null);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000);
 
     try {
       let finalQuery = query.trim();
@@ -208,7 +244,6 @@ export default function Analyze() {
         response = await fetch(`${AI_SERVICE_URL}/api/analyze`, {
           method: "POST",
           body: formData,
-          signal: controller.signal,
         });
       } else {
         // Standard JSON request
@@ -219,40 +254,21 @@ export default function Analyze() {
             query: finalQuery,
             modality,
             temporal,
-            scenario: temporal === "bi-temporal" ? scenarioId : undefined,
+            scenario: temporal === "bi-temporal" && scenarioId ? scenarioId : undefined,
           }),
-          signal: controller.signal,
         });
       }
 
-      clearTimeout(timeoutId);
-
       if (!response.ok) {
         const errJson = await response.json().catch(() => null);
-        throw new Error(errJson?.detail || `Service returned HTTP ${response.status} (${response.statusText})`);
+        throw new Error(errJson?.detail || `Service returned HTTP ${response.status}`);
       }
 
       const data: AnalyzeResponse = await response.json();
       setResult(data);
     } catch (e: any) {
-      clearTimeout(timeoutId);
       console.error("Analysis query failed", e);
-      if (e.name === "AbortError") {
-        setError({
-          title: "Inference Request Timeout",
-          message: "The analysis request timed out after 45 seconds. GeoChat-7B vision-language inference requires active GPU compute or the service may be initializing. Please check the backend service.",
-        });
-      } else if (e.message?.includes("Failed to fetch") || e.message?.includes("NetworkError")) {
-        setError({
-          title: "Backend Service Unreachable",
-          message: `Unable to connect to SatQuery AI backend at ${AI_SERVICE_URL}. Please ensure the satquery-service FastAPI server is running.`,
-        });
-      } else {
-        setError({
-          title: "Backend API Response Error",
-          message: e.message || "Failed to reach SatQuery AI service. Please verify backend state.",
-        });
-      }
+      setError(e.message || "Failed to reach SatQuery AI service. Please verify backend state.");
     } finally {
       setIsRunning(false);
     }
@@ -269,7 +285,7 @@ export default function Analyze() {
     URL.revokeObjectURL(url);
   };
 
-  const currentScenario = SCENARIOS[scenarioId];
+  const currentScenario = scenarioId ? SCENARIOS[scenarioId] : null;
   const isGroundingResult = Array.isArray(result?.visual_evidence);
   const groundingBoxes: GroundingBox[] = isGroundingResult ? (result.visual_evidence as GroundingBox[]) : [];
 
@@ -290,31 +306,29 @@ export default function Analyze() {
         </div>
 
         {/* Preset Query Pills */}
-        <div className="mb-6 flex flex-wrap items-center gap-2" role="region" aria-label="Preset Query Workflows">
-          <span className="label-micro text-muted-foreground mr-2 shrink-0">Preset Workflows:</span>
-          <div className="flex flex-wrap items-center gap-2">
-            {PRESET_QUERIES.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                onClick={() => {
-                  setQuery(preset.query);
-                  setModality(preset.modality);
-                  setTemporal(preset.temporal);
-                  setTaskHint(preset.taskHint);
-                  if (preset.scenario) setScenarioId(preset.scenario);
-                }}
-                className="text-xs px-3 py-1.5 rounded-md border border-border bg-card/60 hover:bg-card hover:border-primary/50 text-secondary-foreground transition-all duration-150 focus:outline-none focus:ring-1 focus:ring-primary"
-                aria-label={`Load preset workflow: ${preset.label}`}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
+        <div className="mb-6 flex flex-wrap items-center gap-2">
+          <span className="label-micro text-muted-foreground mr-2">Preset Workflows:</span>
+          {PRESET_QUERIES.map((preset) => (
+            <button
+              key={preset.label}
+              type="button"
+              onClick={() => {
+                clearWorkspace();
+                setQuery(preset.query);
+                setModality(preset.modality);
+                setTemporal(preset.temporal);
+                setTaskHint(preset.taskHint);
+                setScenarioId(preset.scenario ?? null);
+              }}
+              className="text-xs px-3 py-1.5 rounded-md border border-border bg-card/60 hover:bg-card hover:border-primary/50 text-secondary-foreground transition-all duration-150"
+            >
+              {preset.label}
+            </button>
+          ))}
         </div>
 
         {/* Query Input Box, Selectors & File Upload Zone */}
-        <div className="rounded-xl border border-border bg-card/80 p-4 sm:p-6 shadow-xl backdrop-blur-md mb-8">
+        <div className="rounded-xl border border-border bg-card/80 p-6 shadow-xl backdrop-blur-md mb-8">
           <div className="space-y-4">
             <div>
               <label htmlFor="query-input" className="label-micro mb-2 block text-muted-foreground">
@@ -326,22 +340,27 @@ export default function Analyze() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Ask SatQuery AI a question about your satellite imagery (e.g. 'Where are the runway and building structures in this aerial view?')..."
-                className="w-full rounded-lg border border-border bg-[#121212] px-4 py-3 text-body text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary text-sm sm:text-base"
-                aria-label="Natural language satellite query prompt"
+                className="w-full rounded-lg border border-border bg-[#121212] px-4 py-3 text-body text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
+              {/* Event-link nudge: shown only when arriving from an Earth Event card with no image yet */}
+              {arrivedViaEventLink && uploadedFiles.length === 0 && (
+                <div className="mt-2 flex items-start gap-2.5 rounded-md border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-xs text-primary/80">
+                  <Upload className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>
+                    <span className="font-semibold">Image required to analyze this event.</span>{" "}
+                    Upload a satellite image of the region using the button below, then run the query.
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Task Specialist & Input Controls */}
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pt-2 border-t border-border/50">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:flex md:flex-wrap items-start md:items-center gap-4 sm:gap-6">
+            <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-border/50">
+              <div className="flex flex-wrap items-center gap-6">
                 {/* Task Type Hint */}
-                <div className="w-full sm:w-auto">
+                <div>
                   <span className="label-micro block mb-1 text-muted-foreground">Task Specialist</span>
-                  <div 
-                    className="flex bg-[#121212] p-1 rounded-md border border-border text-xs overflow-x-auto max-w-full"
-                    role="radiogroup" 
-                    aria-label="Task Specialist Classifier Selection"
-                  >
+                  <div className="flex bg-[#121212] p-1 rounded-md border border-border text-xs">
                     {(
                       [
                         { id: "auto", label: "Auto Classifier" },
@@ -354,11 +373,9 @@ export default function Analyze() {
                       <button
                         key={t.id}
                         type="button"
-                        role="radio"
-                        aria-checked={taskHint === t.id}
                         onClick={() => setTaskHint(t.id)}
                         className={cn(
-                          "px-2.5 py-1 rounded font-medium whitespace-nowrap transition-all focus:outline-none focus:ring-1 focus:ring-primary",
+                          "px-2.5 py-1 rounded font-medium transition-all",
                           taskHint === t.id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                         )}
                       >
@@ -369,22 +386,16 @@ export default function Analyze() {
                 </div>
 
                 {/* Modality Selector */}
-                <div className="w-full sm:w-auto">
+                <div>
                   <span className="label-micro block mb-1 text-muted-foreground">Modality</span>
-                  <div 
-                    className="flex bg-[#121212] p-1 rounded-md border border-border text-xs overflow-x-auto max-w-full"
-                    role="radiogroup" 
-                    aria-label="Imagery Modality Selection"
-                  >
+                  <div className="flex bg-[#121212] p-1 rounded-md border border-border text-xs">
                     {(["optical", "sar", "both"] as Modality[]).map((m) => (
                       <button
                         key={m}
                         type="button"
-                        role="radio"
-                        aria-checked={modality === m}
-                        onClick={() => setModality(m)}
+                        onClick={() => { setModality(m); clearWorkspace(); }}
                         className={cn(
-                          "px-3 py-1 rounded font-medium capitalize whitespace-nowrap transition-all focus:outline-none focus:ring-1 focus:ring-primary",
+                          "px-3 py-1 rounded font-medium capitalize transition-all",
                           modality === m ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                         )}
                       >
@@ -395,22 +406,20 @@ export default function Analyze() {
                 </div>
 
                 {/* Temporal Selector */}
-                <div className="w-full sm:w-auto">
+                <div>
                   <span className="label-micro block mb-1 text-muted-foreground">Temporal Mode</span>
-                  <div 
-                    className="flex bg-[#121212] p-1 rounded-md border border-border text-xs overflow-x-auto max-w-full"
-                    role="radiogroup" 
-                    aria-label="Temporal Mode Selection"
-                  >
+                  <div className="flex bg-[#121212] p-1 rounded-md border border-border text-xs">
                     {(["single", "bi-temporal"] as Temporal[]).map((t) => (
                       <button
                         key={t}
                         type="button"
-                        role="radio"
-                        aria-checked={temporal === t}
-                        onClick={() => setTemporal(t)}
+                        onClick={() => {
+                          setTemporal(t);
+                          clearWorkspace();
+                          if (t === "single") setScenarioId(null);
+                        }}
                         className={cn(
-                          "px-3 py-1 rounded font-medium capitalize whitespace-nowrap transition-all focus:outline-none focus:ring-1 focus:ring-primary",
+                          "px-3 py-1 rounded font-medium capitalize transition-all",
                           temporal === t ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                         )}
                       >
@@ -421,27 +430,29 @@ export default function Analyze() {
                 </div>
 
                 {/* Scenario Selector (Bi-temporal mode) */}
-                {temporal === "bi-temporal" && uploadedFiles.length === 0 && (
-                  <div className="w-full sm:w-auto">
+                {temporal === "bi-temporal" && (
+                  <div>
                     <span className="label-micro block mb-1 text-muted-foreground">Scenario Preset</span>
-                    <div 
-                      className="flex bg-[#121212] p-1 rounded-md border border-border text-xs overflow-x-auto max-w-full"
-                      role="radiogroup" 
-                      aria-label="Scenario Preset Selection"
-                    >
+                    <div className="flex bg-[#121212] p-1 rounded-md border border-border text-xs">
                       {(Object.keys(SCENARIOS) as ScenarioId[]).map((id) => (
                         <button
                           key={id}
                           type="button"
-                          role="radio"
-                          aria-checked={scenarioId === id}
-                          onClick={() => setScenarioId(id)}
+                          onClick={() => {
+                            setScenarioId(id as ScenarioId);
+                            setTaskHint("change");
+                            if (id === "deforestation") {
+                              setQuery("What deforestation or forest cover loss is visible in these before and after images?");
+                            } else if (id === "disaster") {
+                              setQuery("What flood damage or structural changes are visible between the pre-event and post-event images?");
+                            }
+                          }}
                           className={cn(
-                            "px-3 py-1 rounded font-medium capitalize whitespace-nowrap transition-all focus:outline-none focus:ring-1 focus:ring-primary",
+                            "px-3 py-1 rounded font-medium capitalize transition-all",
                             scenarioId === id ? "bg-accent text-accent-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                           )}
                         >
-                          {SCENARIOS[id].title}
+                          {SCENARIOS[id as ScenarioId].title}
                         </button>
                       ))}
                     </div>
@@ -450,25 +461,23 @@ export default function Analyze() {
               </div>
 
               {/* Upload Button Trigger & Submit CTA */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-2 lg:pt-0">
+              <div className="flex items-center gap-3">
                 <input
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileChange}
                   multiple
-                  accept=".tif,.tiff,.png,.jpg,.jpeg,.webp"
+                  accept=".tif,.tiff,.png,.jpg,.jpeg"
                   className="hidden"
-                  aria-label="Upload satellite file input"
                 />
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
+                  size="lg"
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-border bg-[#121212] hover:border-primary text-xs h-10 sm:h-9"
-                  aria-label="Upload GeoTIFF or Image"
+                  className="border-border bg-[#121212] hover:border-primary"
                 >
-                  <Upload className="mr-1.5 h-3.5 w-3.5" />
+                  <Upload className="mr-2 h-4 w-4" />
                   Upload GeoTIFF / Image
                 </Button>
 
@@ -476,18 +485,24 @@ export default function Analyze() {
                   size="lg"
                   disabled={isRunning || !query.trim()}
                   onClick={handleRunAnalysis}
-                  className="shadow-lg hover:shadow-primary/20 min-w-[170px] h-11 sm:h-10 text-sm font-semibold"
-                  aria-label={isRunning ? "Inference currently in progress" : "Execute SatQuery AI analysis"}
+                  className={cn(
+                    "shadow-lg min-w-[160px] transition-opacity",
+                    isRunning ? "opacity-60 cursor-not-allowed" : "hover:shadow-primary/20"
+                  )}
                 >
-                  <Play className={cn("mr-2 h-4 w-4", isRunning && "animate-spin text-primary")} />
-                  {isRunning ? "Inference in Progress..." : "Run SatQuery AI"}
+                  {isRunning ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="mr-2 h-4 w-4" />
+                  )}
+                  {isRunning ? "Running..." : "Run SatQuery AI"}
                 </Button>
               </div>
             </div>
 
             {/* Custom Uploaded Files Bar */}
             {uploadedFiles.length > 0 && (
-              <div className="pt-3 border-t border-border/40 flex flex-wrap items-center gap-3" role="region" aria-label="Uploaded Files List">
+              <div className="pt-3 border-t border-border/40 flex flex-wrap items-center gap-3">
                 <span className="label-micro text-muted-foreground">Uploaded Files ({uploadedFiles.length}):</span>
                 {uploadedFiles.map((file, idx) => (
                   <div key={idx} className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#181818] border border-primary/30 text-xs text-foreground">
@@ -496,8 +511,7 @@ export default function Analyze() {
                     <button
                       type="button"
                       onClick={() => handleRemoveFile(idx)}
-                      className="text-muted-foreground hover:text-destructive transition-colors ml-1 p-0.5"
-                      aria-label={`Remove uploaded file ${file.name}`}
+                      className="text-muted-foreground hover:text-destructive transition-colors ml-1"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
@@ -508,38 +522,13 @@ export default function Analyze() {
           </div>
         </div>
 
-        {/* Error Alert Display */}
+        {/* Error Alert */}
         {error && (
-          <div 
-            className="mb-8 rounded-xl bg-destructive/10 p-4 sm:p-5 border border-destructive/30 text-destructive shadow-lg flex flex-col sm:flex-row items-start justify-between gap-4"
-            role="alert"
-          >
-            <div className="flex items-start gap-3.5">
-              <AlertCircle className="h-5 w-5 shrink-0 mt-0.5 text-destructive" />
-              <div className="space-y-1">
-                <p className="font-semibold text-sm text-foreground">{error.title}</p>
-                <p className="text-xs text-destructive leading-relaxed">{error.message}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleRunAnalysis}
-                className="h-8 text-xs bg-background/50 border-destructive/30 text-foreground hover:bg-background"
-                aria-label="Retry failed query analysis"
-              >
-                Retry
-              </Button>
-              <button
-                type="button"
-                onClick={() => setError(null)}
-                className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
-                aria-label="Dismiss error message"
-              >
-                <X className="h-4 w-4" />
-              </button>
+          <div className="mb-8 rounded-lg bg-destructive/10 p-4 border border-destructive/20 text-destructive flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-sm">Backend API Response Error</p>
+              <p className="text-xs mt-1 text-destructive/90">{error}</p>
             </div>
           </div>
         )}
@@ -548,24 +537,55 @@ export default function Analyze() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Left Column: Visual Evidence / Canvas Viewer with Bounding Box Overlay */}
           <div className="lg:col-span-7 space-y-6">
-            {uploadedFiles.length > 0 ? (
-              <div className="relative min-h-[340px] sm:min-h-[440px] rounded-xl border border-border bg-[#121212] overflow-hidden flex flex-col justify-center items-center p-3 sm:p-4 shadow-xl">
-                <div className="relative w-full h-[300px] sm:h-[400px] flex items-center justify-center bg-black/60 rounded-lg overflow-hidden">
-                  <img
-                    src={filePreviewUrls[0]}
-                    alt="User Uploaded Remote Sensing Source Image"
-                    className="max-h-full max-w-full object-contain"
-                  />
-                  {/* Active Ingestion Scan Overlay */}
-                  {isRunning && (
-                    <div className="absolute inset-0 bg-primary/10 border border-primary/30 flex items-center justify-center pointer-events-none animate-pulse">
-                      <span className="px-3 py-1 rounded bg-black/80 border border-primary/40 text-primary font-mono text-xs flex items-center gap-2">
-                        <Activity className="h-3.5 w-3.5 animate-spin" /> ENCODING USER SATELLITE TENSORS
-                      </span>
+            {temporal === "bi-temporal" && result?.preview_images_base64 && result.preview_images_base64.length >= 2 ? (
+              <ImageComparisonViewer
+                beforeImage={result.preview_images_base64[0]}
+                afterImage={result.preview_images_base64[1]}
+                title={uploadedFiles.length === 0 ? currentScenario?.description : undefined}
+              />
+            ) : temporal === "bi-temporal" && uploadedFiles.length >= 2 && !result ? (
+              /* Bi-temporal TIF staged — browser can't render TIFF blobs, wait for backend preview */
+              <div className="relative min-h-[440px] rounded-xl border border-border bg-[#0d0d0d] overflow-hidden flex flex-col justify-center items-center gap-5 shadow-xl">
+                <div className="flex flex-col items-center gap-3 text-center px-8">
+                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+                    <ScanSearch className="h-6 w-6 text-primary" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">{uploadedFiles.length} GeoTIFF files staged</p>
+                  <p className="text-xs text-muted-foreground max-w-xs">
+                    TIFF images cannot be previewed in the browser. Run the analysis to generate a visual comparison.
+                  </p>
+                  <div className="flex gap-2 flex-wrap justify-center mt-1">
+                    {uploadedFiles.map((f, i) => (
+                      <span key={i} className="text-[10px] px-2 py-1 rounded bg-card border border-border text-muted-foreground font-mono">{f.name}</span>
+                    ))}
+                  </div>
+                </div>
+                <div className="absolute bottom-0 w-full h-10 border-t border-border flex items-center justify-between px-6 bg-card/90">
+                  <span className="label-micro font-semibold tracking-wider text-muted-foreground">BEFORE (PRE-EVENT)</span>
+                  <span className="label-micro font-semibold tracking-wider text-muted-foreground">AFTER (POST-EVENT)</span>
+                </div>
+              </div>
+            ) : uploadedFiles.length > 0 ? (
+              <div className="relative min-h-[440px] rounded-xl border border-border bg-[#121212] overflow-hidden flex flex-col justify-center items-center p-4 shadow-xl">
+                <div className="relative w-full h-[400px] flex items-center justify-center bg-black/60 rounded-lg overflow-hidden">
+                  {/* Only render preview from backend base64 — raw TIF blob URLs cannot be rendered by browsers */}
+                  {result?.preview_image_base64 ? (
+                    <img
+                      src={result.preview_image_base64}
+                      alt="User Uploaded Satellite Source"
+                      className="max-h-full max-w-full object-contain"
+                    />
+                  ) : (
+                    <div className="flex flex-col items-center gap-3 text-center px-6">
+                      <ScanSearch className="h-8 w-8 text-primary/40" />
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-semibold text-foreground">{uploadedFiles[0].name}</span> staged —
+                        TIFF preview will appear after running the analysis.
+                      </p>
                     </div>
                   )}
                   {/* Render Bounding Boxes for Uploaded Image */}
-                  {!isRunning && groundingBoxes.map((box, idx) => {
+                  {result?.preview_image_base64 && groundingBoxes.map((box, idx) => {
                     const [xmin, ymin, xmax, ymax] = box.box_normalized;
                     return (
                       <div
@@ -578,7 +598,7 @@ export default function Analyze() {
                           height: `${ymax - ymin}%`,
                         }}
                       >
-                        <span className="absolute -top-5 sm:-top-6 left-0 px-1 sm:px-1.5 py-0.5 rounded bg-red-600 text-white font-mono text-[9px] sm:text-[10px] whitespace-nowrap shadow">
+                        <span className="absolute -top-6 left-0 px-1.5 py-0.5 rounded bg-red-600 text-white font-mono text-[10px] whitespace-nowrap shadow">
                           {box.label}
                         </span>
                       </div>
@@ -586,91 +606,21 @@ export default function Analyze() {
                   })}
                 </div>
               </div>
-            ) : temporal === "bi-temporal" ? (
-              <div className="relative min-h-[340px] sm:min-h-[440px] overflow-hidden rounded-xl border border-border bg-card shadow-xl flex flex-col">
-                <div className="absolute top-3 left-3 sm:top-4 sm:left-4 z-10 bg-background/85 backdrop-blur-md px-3 py-1 rounded-md text-xs font-medium border border-border/50 truncate max-w-[85%]">
-                  {currentScenario.description}
-                </div>
-
-                <div className="relative flex-1 overflow-hidden group min-h-[300px] sm:min-h-[380px]">
-                  {/* After Image */}
-                  <div
-                    className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-                    style={{ backgroundImage: `url(${currentScenario.afterImage})` }}
-                    role="img"
-                    aria-label={`Post-event observation: ${currentScenario.title}`}
-                  />
-
-                  {/* Before Image (Clipped) */}
-                  <div
-                    className="absolute inset-y-0 left-0 bg-cover bg-center bg-no-repeat border-r-2 border-primary"
-                    style={{
-                      width: `${comparisonPos}%`,
-                      backgroundImage: `url(${currentScenario.beforeImage})`,
-                    }}
-                    role="img"
-                    aria-label={`Pre-event baseline observation: ${currentScenario.title}`}
-                  />
-
-                  {/* Slider Handle */}
-                  <div
-                    className="absolute inset-y-0 flex items-center justify-center w-8 -ml-4 pointer-events-none"
-                    style={{ left: `${comparisonPos}%` }}
-                  >
-                    <div className="h-8 w-8 rounded-full bg-card border border-primary flex items-center justify-center shadow-lg text-primary">
-                      <ArrowRightLeft className="h-3.5 w-3.5" />
-                    </div>
-                  </div>
-
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={comparisonPos}
-                    onChange={(e) => setComparisonPos(Number(e.target.value))}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize z-20"
-                    aria-label="Bi-temporal before/after satellite image comparison slider"
-                  />
-
-                  {/* In-Flight Scan Overlay */}
-                  {isRunning && (
-                    <div className="absolute inset-0 bg-primary/10 flex items-center justify-center pointer-events-none z-30 animate-pulse">
-                      <span className="px-3 py-1.5 rounded-md bg-black/85 border border-primary/50 text-primary font-mono text-xs flex items-center gap-2 shadow-lg">
-                        <Activity className="h-4 w-4 animate-spin" /> BI-TEMPORAL DIFFERENCE EXTRACTION
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="h-11 sm:h-12 border-t border-border flex items-center justify-between px-4 sm:px-6 bg-card/90">
-                  <span className="label-micro font-semibold text-muted-foreground text-[10px] sm:text-xs">PRE-EVENT (BEFORE)</span>
-                  <ScanSearch className="h-4 w-4 text-primary/60" />
-                  <span className="label-micro font-semibold text-muted-foreground text-[10px] sm:text-xs">POST-EVENT (AFTER)</span>
-                </div>
-              </div>
-            ) : (
-              <div className="relative min-h-[340px] sm:min-h-[440px] rounded-xl border border-border bg-[#121212] overflow-hidden flex flex-col justify-center items-center p-3 sm:p-4 shadow-xl">
-                <div className="relative w-full h-[300px] sm:h-[400px] flex items-center justify-center bg-black/60 rounded-lg overflow-hidden">
+            ) : result?.preview_image_base64 ? (
+              <div className="relative min-h-[440px] rounded-xl border border-border bg-[#121212] overflow-hidden flex flex-col justify-center items-center p-4 shadow-xl">
+                <div className="relative w-full h-[400px] flex items-center justify-center bg-black/60 rounded-lg overflow-hidden">
                   <img
-                    src="/hero-satellite.jpg"
-                    alt="Optical Satellite Imagery Surface Canvas"
-                    className="w-full h-full object-cover filter brightness-90"
+                    src={result.preview_image_base64}
+                    alt="Satellite Source Preview"
+                    className="max-h-full max-w-full object-contain"
                   />
-                  {/* In-Flight Scan Overlay */}
-                  {isRunning && (
-                    <div className="absolute inset-0 bg-primary/10 flex items-center justify-center pointer-events-none z-30 animate-pulse">
-                      <span className="px-3 py-1.5 rounded-md bg-black/85 border border-primary/50 text-primary font-mono text-xs flex items-center gap-2 shadow-lg">
-                        <Activity className="h-4 w-4 animate-spin" /> RUNNING GEOCHAT-7B REMOTE-SENSING INFERENCE
-                      </span>
-                    </div>
-                  )}
-                  {/* Render Bounding Boxes Overlay on Default Canvas */}
-                  {!isRunning && groundingBoxes.map((box, idx) => {
+                  {/* Render Bounding Boxes for Single Preview */}
+                  {groundingBoxes.map((box, idx) => {
                     const [xmin, ymin, xmax, ymax] = box.box_normalized;
                     return (
                       <div
                         key={idx}
-                        className="absolute border-2 border-red-500 bg-red-500/15 pointer-events-none transition-all"
+                        className="absolute border-2 border-red-500 bg-red-500/10 pointer-events-none transition-all"
                         style={{
                           left: `${xmin}%`,
                           top: `${ymin}%`,
@@ -678,18 +628,55 @@ export default function Analyze() {
                           height: `${ymax - ymin}%`,
                         }}
                       >
-                        <span className="absolute -top-5 sm:-top-6 left-0 px-1 sm:px-1.5 py-0.5 rounded bg-red-600 text-white font-mono text-[9px] sm:text-[10px] whitespace-nowrap shadow">
+                        <span className="absolute -top-6 left-0 px-1.5 py-0.5 rounded bg-red-600 text-white font-mono text-[10px] whitespace-nowrap shadow">
                           {box.label}
                         </span>
                       </div>
                     );
                   })}
                 </div>
-                <div className="mt-3 text-caption text-muted-foreground text-center">
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent">
-                    <Radio className="h-3.5 w-3.5" /> {modality.toUpperCase()} SATELLITE CANVAS
-                  </span>
+              </div>
+            ) : (
+              /* Empty-state dropzone — single visual panel for all modes */
+              <div
+                className="relative min-h-[440px] rounded-xl border-2 border-dashed border-border bg-[#0d0d0d] overflow-hidden flex flex-col justify-center items-center gap-4 p-8 shadow-xl cursor-pointer group hover:border-primary/50 transition-colors duration-200"
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const files = Array.from(e.dataTransfer.files).filter((f) =>
+                    /\.(tif|tiff|png|jpg|jpeg)$/i.test(f.name)
+                  );
+                  if (files.length > 0) {
+                    setUploadedFiles((prev) => [...prev, ...files].slice(0, 4));
+                    setError(null);
+                  }
+                }}
+              >
+                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-border bg-card/60 text-muted-foreground group-hover:border-primary/40 group-hover:text-primary/70 transition-colors duration-200">
+                  <Upload className="h-7 w-7" />
                 </div>
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-semibold text-foreground">
+                    {temporal === "bi-temporal"
+                      ? "Upload your own imagery"
+                      : "Upload an image to begin"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Drag &amp; drop a GeoTIFF, JPEG, or PNG file here, or click to browse
+                  </p>
+                </div>
+                {/* Scenario configured badge */}
+                {temporal === "bi-temporal" && currentScenario ? (
+                  <div className="mt-1 flex items-center gap-2 px-3 py-1.5 rounded-md bg-accent/10 border border-accent/30 text-accent text-xs font-medium">
+                    <ScanSearch className="h-3.5 w-3.5 shrink-0" />
+                    Scenario configured: {currentScenario.title}
+                  </div>
+                ) : temporal === "bi-temporal" ? (
+                  <p className="text-[11px] font-mono text-muted-foreground/50 mt-1">
+                    No scenario selected — use the Scenario Preset buttons above to configure
+                  </p>
+                ) : null}
               </div>
             )}
 
@@ -700,7 +687,7 @@ export default function Analyze() {
                 <div className="relative rounded-lg overflow-hidden border border-border bg-black h-48 flex items-center justify-center">
                   <img
                     src={`${AI_SERVICE_URL}${result.visual_evidence.mask_url}`}
-                    alt="Inference Generated Surface Alteration Mask"
+                    alt="Inference Change Mask"
                     className="max-h-full object-contain"
                   />
                 </div>
@@ -708,31 +695,14 @@ export default function Analyze() {
             )}
           </div>
 
-          {/* Right Column: Clear Visual Hierarchy — Primary Model Answer > Grounding Evidence > Auditable Trace */}
+          {/* Right Column: Model Answer, Grounding Table & Auditable Trace */}
           <div className="lg:col-span-5 space-y-6">
-            
-            {/* LEVEL 1: PRIMARY MODEL ANSWER HERO CARD */}
-            <div className={cn(
-              "rounded-xl p-5 sm:p-6 shadow-2xl relative overflow-hidden transition-all duration-300",
-              result
-                ? "border-2 border-primary/40 bg-[#121212] ring-1 ring-primary/20"
-                : "border border-border bg-card"
-            )}>
-              <div className="flex items-center justify-between border-b border-border/60 pb-3.5 mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15 border border-primary/30 text-primary">
-                    <Sparkles className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold uppercase tracking-wider text-foreground block">
-                      Primary Model Answer
-                    </span>
-                    <span className="text-[10px] font-mono text-muted-foreground">
-                      GeoChat-7B Remote-Sensing VLM
-                    </span>
-                  </div>
-                </div>
-
+            {/* Model Response Card */}
+            <div className="rounded-xl border border-border bg-card p-6 shadow-xl relative overflow-hidden">
+              <div className="flex items-center justify-between border-b border-border/60 pb-4 mb-4">
+                <span className="label-micro text-muted-foreground flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" /> MODEL ANSWER
+                </span>
                 <div className="flex items-center gap-2">
                   {result && (
                     <Button
@@ -740,161 +710,100 @@ export default function Analyze() {
                       variant="ghost"
                       size="sm"
                       onClick={handleExportJson}
-                      className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground border border-border/60 hover:border-primary"
-                      aria-label="Export analysis result as JSON file"
+                      className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
                     >
                       <Download className="h-3.5 w-3.5 mr-1" /> JSON
                     </Button>
                   )}
-                  <span className={cn(
-                    "text-[11px] font-semibold px-2.5 py-0.5 rounded border tracking-wide uppercase",
-                    isRunning 
-                      ? "bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse" 
-                      : result 
-                      ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400 shadow-sm" 
-                      : "bg-muted border-border text-muted-foreground"
-                  )}>
-                    {isRunning ? "Executing" : result ? "Complete" : "Ready"}
+                  <span className="text-xs font-medium px-2.5 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary">
+                    {result ? "Complete" : "Ready"}
                   </span>
                 </div>
               </div>
 
               <div className="min-h-[140px]">
                 {isRunning ? (
-                  <div className="py-6 space-y-4">
-                    <div className="flex items-center gap-3">
-                      <Activity className="h-5 w-5 animate-spin text-primary shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-foreground">Inference Pipeline In Flight</p>
-                        <p className="text-xs text-muted-foreground">GeoChat-7B vision-language execution (~3–8s)</p>
-                      </div>
-                    </div>
-
-                    {/* Step-by-Step Progress Pipeline */}
-                    <div className="space-y-2 pt-2 border-t border-border/40 font-mono text-xs">
-                      <div className="flex items-center gap-2">
-                        <span className={cn(
-                          "h-2 w-2 rounded-full",
-                          loadingStage >= 1 ? "bg-primary" : "bg-neutral-700"
-                        )} />
-                        <span className={loadingStage >= 1 ? "text-foreground font-medium" : "text-muted-foreground"}>
-                          1. Agentic intent &amp; task classification
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={cn(
-                          "h-2 w-2 rounded-full",
-                          loadingStage >= 2 ? "bg-primary" : "bg-neutral-700"
-                        )} />
-                        <span className={loadingStage >= 2 ? "text-foreground font-medium" : "text-muted-foreground"}>
-                          2. Multi-spectral tensor projection
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className={cn(
-                          "h-2 w-2 rounded-full",
-                          loadingStage >= 3 ? "bg-primary animate-ping" : "bg-neutral-700"
-                        )} />
-                        <span className={loadingStage >= 3 ? "text-primary font-medium" : "text-muted-foreground"}>
-                          3. Autoregressive remote-sensing decoding
-                        </span>
-                      </div>
-                    </div>
+                  <div className="flex items-center justify-center h-36">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
                   </div>
                 ) : result ? (
                   <div className="space-y-4">
-                    {/* Highlighted Primary Text Answer */}
-                    <div className="p-3.5 sm:p-4 rounded-lg bg-[#161616] border border-border/80">
-                      <p className="text-foreground leading-relaxed text-sm sm:text-base font-normal">
-                        {result.answer}
-                      </p>
-                    </div>
+                    <p className="text-body text-foreground leading-relaxed font-medium">
+                      {result.answer}
+                    </p>
 
-                    {/* Key Metrics / Change Percentage Highlight */}
-                    {result.visual_evidence && "change_percentage" in result.visual_evidence && result.visual_evidence.change_percentage !== undefined && result.visual_evidence.change_percentage !== null && (
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-primary/10 border border-primary/25">
-                        <span className="text-xs font-semibold text-primary uppercase tracking-wide">
-                          Quantified Surface Alteration
+                    {/* Render Visual Grounding Evidence List */}
+                    {groundingBoxes.length > 0 && (
+                      <div className="pt-3 border-t border-border/40 space-y-2">
+                        <span className="label-micro text-muted-foreground block flex items-center gap-1.5">
+                          <Target className="h-3.5 w-3.5 text-red-400" /> Grounding Evidence ({groundingBoxes.length} Bounding Boxes)
                         </span>
-                        <span className="font-mono text-base sm:text-lg font-bold text-primary">
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {groundingBoxes.map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between p-2 rounded bg-[#141414] border border-border/50 text-xs">
+                              <span className="font-medium text-foreground truncate max-w-[200px]">{item.label}</span>
+                              <span className="font-mono text-primary text-[11px]">
+                                [{item.box_normalized.join(", ")}]
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Change Percentage if present */}
+                    {result.visual_evidence && "change_percentage" in result.visual_evidence && result.visual_evidence.change_percentage !== undefined && result.visual_evidence.change_percentage !== null && (
+                      <div className="pt-3 border-t border-border/40 flex items-center justify-between">
+                        <span className="label-micro text-muted-foreground">Detected Surface Change</span>
+                        <span className="font-mono text-lg font-bold text-primary">
                           {result.visual_evidence.change_percentage}%
                         </span>
                       </div>
                     )}
 
-                    {/* Confidence Telemetry */}
-                    <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
-                      <span>Model Confidence:</span>
+                    {/* Confidence Score Display (Flagged Backend Behavior: Hardcoded null by LLM) */}
+                    <div className="pt-2 border-t border-border/40 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Confidence Score</span>
                       <span className="font-mono text-foreground font-semibold">
                         {result.confidence !== null && result.confidence !== undefined
                           ? `${(result.confidence * 100).toFixed(1)}%`
-                          : "N/A (Autoregressive GeoChat)"}
+                          : "N/A (Causal LLM)"}
                       </span>
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-36 text-center text-muted-foreground">
-                    <p className="text-xs sm:text-sm">Enter a query prompt above and click &ldquo;Run SatQuery AI&rdquo; to execute remote-sensing analysis.</p>
+                    <p className="text-xs">Enter a query prompt above and click "Run SatQuery AI" to execute analysis.</p>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* LEVEL 2: GROUNDING VISUAL EVIDENCE TABLE (WHEN PRESENT) */}
-            {groundingBoxes.length > 0 && (
-              <div className="rounded-xl border border-border bg-[#101010] p-5 shadow-lg space-y-3">
-                <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    <Target className="h-4 w-4 text-red-400" /> Grounded Detections
-                  </span>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
-                    {groundingBoxes.length} Bounding Boxes
-                  </span>
-                </div>
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                  {groundingBoxes.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2 rounded bg-[#141414] border border-border/50 text-xs">
-                      <span className="font-medium text-foreground truncate max-w-[200px]">{item.label}</span>
-                      <span className="font-mono text-primary text-[11px]">
-                        [{item.box_normalized.join(", ")}]
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* LEVEL 3: AUDITABLE EXECUTION TRACE (SUPPORTING TELEMETRY) */}
-            <div className="rounded-xl border border-border bg-[#0B0B0B] p-5 sm:p-6 shadow-xl">
-              <div className="flex items-center justify-between border-b border-border/60 pb-3 mb-3.5">
+            {/* Auditable Execution Trace Card */}
+            <div className="rounded-xl border border-border bg-[#0E0E0E] p-6 shadow-xl">
+              <div className="flex items-center justify-between border-b border-border/60 pb-3 mb-4">
                 <span className="label-micro text-muted-foreground flex items-center gap-2">
                   <Terminal className="h-4 w-4 text-accent" /> AUDITABLE EXECUTION TRACE
                 </span>
-                <span className="text-[10px] font-mono text-accent bg-accent/15 px-2 py-0.5 rounded border border-accent/30">
-                  PS-COMPLIANT
-                </span>
+                <span className="text-xs font-mono text-accent">PS-COMPLIANT</span>
               </div>
 
-              {isRunning ? (
-                <div className="py-6 text-center text-xs text-primary font-mono animate-pulse flex items-center justify-center gap-2">
-                  <Activity className="h-4 w-4 animate-spin" /> Awaiting telemetry from agentic controller...
-                </div>
-              ) : result?.execution_trace ? (
+              {result?.execution_trace ? (
                 <div className="space-y-3 text-xs font-mono">
-                  <div className="p-3 rounded-lg bg-[#121212] border border-border/60 space-y-2">
-                    <div className="flex justify-between items-center">
+                  <div className="p-3 rounded-lg bg-[#141414] border border-border/60 space-y-2">
+                    <div className="flex justify-between">
                       <span className="text-muted-foreground">Task Classified:</span>
                       <span className="text-primary font-bold">{result.execution_trace.task}</span>
                     </div>
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between">
                       <span className="text-muted-foreground">Specialist Used:</span>
                       <span className="text-foreground">{result.execution_trace.specialist_used}</span>
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-lg bg-[#121212] border border-border/60">
-                    <p className="text-muted-foreground mb-1.5 text-[11px]">Execution Parameters:</p>
-                    <pre className="text-[11px] text-accent/90 overflow-x-auto max-h-40 p-1">
+                  <div className="p-3 rounded-lg bg-[#141414] border border-border/60">
+                    <p className="text-muted-foreground mb-1.5">Parameters:</p>
+                    <pre className="text-[11px] text-accent/90 overflow-x-auto">
                       {JSON.stringify(result.execution_trace.parameters, null, 2)}
                     </pre>
                   </div>
@@ -905,11 +814,9 @@ export default function Analyze() {
                 </div>
               )}
             </div>
-
           </div>
         </div>
       </div>
     </div>
   );
 }
-

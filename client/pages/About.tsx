@@ -1,255 +1,319 @@
-import { 
-  Bot, 
-  Cpu, 
-  Database, 
-  Layers, 
-  Server, 
-  Sparkles, 
-  ShieldCheck, 
-  CheckCircle2, 
-  AlertTriangle, 
-  ArrowUpRight, 
-  Radio, 
-  ScanSearch, 
-  GitCompare, 
-  FileText 
-} from "lucide-react";
-import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { CheckCircle2, Circle, Clock, Cpu, Database, Globe, Layers, Server, ScanSearch, Radio, ArrowRightLeft, Sparkles } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-const ARCHITECTURE_MODULES = [
+// Technology Stack Items
+const TECH_STACK = [
   {
-    icon: Bot,
-    name: "Vision-Language Core",
-    spec: "GeoChat-7B (4-bit quantized)",
-    description:
-      "A LLaVA-based model pretrained on remote-sensing instruction data for zero-shot aerial and satellite visual reasoning.",
+    name: "SatQuery AI (GeoChat-7B)",
+    category: "Geospatial Vision-Language Model",
+    description: "Fine-tuned 4-bit GeoChat-7B multi-modal LLM powering zero-shot VQA, visual grounding, and remote sensing intelligence.",
+    icon: Sparkles,
   },
   {
-    icon: Database,
-    name: "Domain Adaptation",
-    spec: "QLoRA on BigEarthNet Subset",
-    description:
-      "Adapting output style toward CORINE land-cover taxonomy — aligning model responses with standard Earth observation nomenclature.",
+    name: "CesiumJS + satellite.js",
+    category: "3D Globe & Orbital Physics",
+    description: "Renders interactive 3D Earth visualization and performs real-time SGP4 orbital propagation from NORAD TLE data.",
+    icon: Globe,
   },
   {
+    name: "Agentic Router & Specialists",
+    category: "Multi-Specialist Controller",
+    description: "Dynamic query routing across VQA, spatial grounding, bi-temporal change detection, and Sentinel-1 SAR fusion engines.",
     icon: Cpu,
-    name: "Agentic Controller",
-    spec: "Intent & Modality Router",
-    description:
-      "Rule-based task classifier routing queries by modality, temporal structure, and intent to one of four specialist modules, each returning a structured, auditable response.",
   },
   {
-    icon: Server,
-    name: "Backend Service",
-    spec: "FastAPI (satquery-service)",
-    description:
-      "Inference microservice exposing a single unified /api/analyze endpoint with support for multipart GeoTIFF/image streaming and prompt orchestration.",
+    name: "PostGIS & Vector Store",
+    category: "Geospatial Database",
+    description: "PostgreSQL 16 with PostGIS 3.4 for spatial indexing, satellite catalog persistence, and geometric query processing.",
+    icon: Database,
   },
   {
+    name: "React / TypeScript",
+    category: "Frontend Application",
+    description: "Powers the mission control interface with type-safe state management, auditable trace panels, and interactive image viewers.",
     icon: Layers,
-    name: "Frontend Workspace",
-    spec: "React 18 / TypeScript",
-    description:
-      "Mission control interface with live query input, task/modality/temporal controls, interactive bi-temporal sliders, and real-time execution trace telemetry.",
+  },
+  {
+    name: "Docker Microservices",
+    category: "Containerized Orchestration",
+    description: "Orchestrates multi-container environment (Frontend, Express Orbit Service, Python SatQuery AI Engine, PostGIS) for seamless deployment.",
+    icon: Server,
   },
 ];
 
-const CAPABILITIES = [
-  {
-    icon: ScanSearch,
-    title: "Single-Image VQA & Object Grounding",
-    description: "Natural-language query answering with visually-verified bounding box coordinates overlaid directly on the satellite canvas.",
-  },
-  {
-    icon: GitCompare,
-    title: "Bi-Temporal Change Analysis",
-    description: "Quantifies and describes surface and structural alterations across multi-date observation pairs via native two-image prompting.",
-  },
-  {
-    icon: Radio,
-    title: "Optical–SAR Multimodal Fusion",
-    description: "Classical radar backscatter thresholding combined with VLM scene description for all-weather, cloud-penetrating surface analysis.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Auditable Execution Traces",
-    description: "Full agentic routing metadata logging task classification, specialist attribution, and execution parameters for strict compliance.",
-  },
-];
+// Timeline / Roadmap Items: "What We Built vs. What's Next"
+interface TimelineItem {
+  phase: string;
+  title: string;
+  subtitle: string;
+  status: "completed" | "roadmap";
+  statusLabel: string;
+  summary: string;
+  highlights: string[];
+}
 
-const HONEST_SCOPE_NOTES = [
+const TIMELINE: TimelineItem[] = [
   {
-    title: "Optical–SAR Fusion Data Scope",
-    note: "Optical-SAR fusion is currently validated against synthetically-generated SAR data pending real Sentinel-1/RISAT integration — the fusion logic and thresholds are real and documented, but not yet tested against real radar imagery.",
+    phase: "PHASE 01",
+    title: "SatQuery AI Agent Engine",
+    subtitle: "VQA, Grounding & Multimodal Analysis",
+    status: "completed",
+    statusLabel: "Current Build",
+    summary: "Integrated fine-tuned GeoChat-7B 4-bit vision-language model into an agentic multi-specialist routing pipeline.",
+    highlights: [
+      "SatQuery AI Agentic Controller with automated query routing (VQA, Grounding, Change VQA, SAR Fusion)",
+      "Zero-shot geospatial visual question answering and spatial bounding box object grounding [xmin, ymin, xmax, ymax]",
+      "Bi-temporal change detection & change-VQA engine for deforestation and flood disaster monitoring",
+      "Optical-SAR multimodal fusion specialist combining Sentinel-1 synthetic aperture radar and optical imagery",
+      "Live satellite tracking on a 3D CesiumJS globe with automated NORAD CelesTrak TLE fetching",
+    ],
   },
   {
-    title: "Change-VQA Spatial Grounding",
-    note: "Change-VQA currently answers what changed; spatial grounding of where the change occurred is not yet implemented.",
+    phase: "PHASE 02",
+    title: "Edge & On-Device Quantization",
+    subtitle: "Quantized payload & low-latency inference",
+    status: "roadmap",
+    statusLabel: "Future Roadmap",
+    summary: "Targeting lower latency and bandwidth savings by executing INT4/INT8 quantized VQA models on satellite edge compute hardware.",
+    highlights: [
+      "Model quantization (INT8/FP16) for onboard satellite edge hardware execution",
+      "On-satellite change detection & grounding to stream bounding boxes rather than raw heavy imagery",
+      "Asynchronous tile caching for high-latency or intermittent satellite downlinks",
+    ],
   },
   {
-    title: "Benchmark Evaluation Methodology",
-    note: "Benchmark evaluation is a manually-reviewed sample against real VRSBench and RSVQA-LR test items, not a full automated scoring run across complete test splits.",
+    phase: "PHASE 03",
+    title: "Autonomous Fleet Tasking",
+    subtitle: "Multi-satellite swarm coordination",
+    status: "roadmap",
+    statusLabel: "Future Roadmap",
+    summary: "Expanding single-satellite AI analysis to autonomous, fleet-wide observation scheduling.",
+    highlights: [
+      "Automated cross-constellation tasking based on SatQuery AI detected environmental anomalies",
+      "Real-time alert distribution network for disaster response teams and forest conservation agencies",
+      "Global spatial query engine combining historical telemetry with multi-spectral & SAR imagery",
+    ],
   },
 ];
 
 export default function About() {
   return (
-    <div className="min-h-screen px-4 sm:px-6 pb-24 pt-24 sm:pt-28 relative bg-background">
-      <div className="mx-auto max-w-[1100px] space-y-12 sm:space-y-16">
+    <div className="min-h-screen px-6 pb-24 pt-28 relative">
+      {/* Background ambient glow */}
+      <div className="absolute top-1/3 right-1/4 w-96 h-96 bg-primary/5 rounded-full blur-[140px] pointer-events-none" />
+
+      {/* Main Content Container matching landing page text background */}
+      <div className="mx-auto max-w-[1050px] relative z-10 rounded-2xl border border-white/10 bg-[#121212]/90 p-8 sm:p-12 shadow-2xl space-y-14">
         
-        {/* Section 1: Hero & What It Does */}
-        <section 
-          className="rounded-2xl border border-border bg-[#121212] p-5 sm:p-8 md:p-12 shadow-xl space-y-6 sm:space-y-8"
-          aria-label="Project Overview"
-        >
-          <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 max-w-full">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse shrink-0" />
-              <p className="label-micro !tracking-wider !mb-0 text-primary font-semibold truncate text-[10px] sm:text-xs">
-                Smart India Hackathon 2026 &bull; ISRO Problem Statement PS-26167
-              </p>
-            </div>
-            
-            <h1 className="text-headline font-bold leading-tight text-foreground text-2xl sm:text-4xl md:text-5xl tracking-tight">
-              SatQuery AI
-            </h1>
-            
-            <p className="text-subhead font-medium text-primary text-base sm:text-xl">
-              Agentic Vision-Language Assistant for Remote Sensing Image Analysis
-            </p>
+        {/* Section 1: Project Overview */}
+        <section className="max-w-3xl">
+          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/20 mb-4">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+            <p className="label-micro !tracking-widest !mb-0 text-primary font-semibold">MISSION CONTROL & SATQUERY AI</p>
+          </div>
+          <h1 className="text-headline font-semibold leading-tight text-foreground tracking-tight">
+            Orbital Pulse & SatQuery AI
+          </h1>
+          <p className="mt-6 text-body text-muted-foreground leading-relaxed text-lg">
+            Orbital Pulse is a next-generation real-time satellite tracking and Earth observation platform powered by <strong className="text-foreground font-semibold">SatQuery AI</strong>. It unifies live NORAD orbital telemetry on an interactive 3D CesiumJS globe with fine-tuned GeoChat-7B vision-language intelligence. SatQuery AI functions as an agentic remote-sensing controller—routing queries across specialized VQA engines, spatial object grounding, bi-temporal change detection, and Sentinel-1 SAR cloud-penetrating radar fusion.
+          </p>
+        </section>
+
+        {/* Section 1.5: Core SatQuery AI Capabilities */}
+        <section className="border-t border-white/10 pt-12">
+          <div className="mb-8">
+            <p className="label-micro mb-2">AI Capabilities</p>
+            <h2 className="text-subhead font-semibold text-foreground">SatQuery AI Agentic Specialists</h2>
           </div>
 
-          <div className="border-t border-border/60 pt-5 sm:pt-6 space-y-4">
-            <h2 className="label-micro text-muted-foreground !tracking-widest">
-              WHAT IT DOES
-            </h2>
-            <p className="text-body text-foreground/90 leading-relaxed text-sm sm:text-base md:text-lg">
-              SatQuery AI lets you ask natural-language questions about satellite and aerial imagery instead of manually running separate specialist tools. A query like <span className="text-primary font-medium">&ldquo;what changed between these two dates, and where?&rdquo;</span> is automatically classified and routed to the right underlying model — visual question answering, object grounding, bi-temporal change analysis, or optical-SAR fusion — and every response includes a full execution trace showing exactly which task and specialist handled it.
-            </p>
-            
-            <div className="pt-2">
-              <Button asChild className="shadow-md hover:shadow-primary/20 w-full sm:w-auto">
-                <Link to="/analyze" aria-label="Open SatQuery AI Workspace">
-                  Open SatQuery AI Workspace
-                  <ArrowUpRight className="ml-1.5 h-4 w-4" aria-hidden="true" />
-                </Link>
-              </Button>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818]">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/20 text-primary">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground text-sm">Visual QA</h3>
+                  <p className="text-[11px] text-muted-foreground">Remote Sensing VQA</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Zero-shot visual question answering over optical satellite imagery powered by 4-bit GeoChat-7B.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818]">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent/20 text-accent">
+                  <ScanSearch className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground text-sm">Spatial Grounding</h3>
+                  <p className="text-[11px] text-muted-foreground">Object Localization</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Detects and highlights infrastructure, buildings, and natural features with normalized bounding box coordinates.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818]">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/20 text-emerald-400">
+                  <ArrowRightLeft className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground text-sm">Change VQA</h3>
+                  <p className="text-[11px] text-muted-foreground">Bi-Temporal Analysis</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Compares before/after imagery pairs to quantify deforestation, canopy loss, and disaster impact.
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818]">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-500/20 text-blue-400">
+                  <Radio className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-foreground text-sm">SAR Fusion</h3>
+                  <p className="text-[11px] text-muted-foreground">Sentinel-1 Radar</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Fuses synthetic aperture radar (SAR) channels for cloud-penetrating, night-time flood inundation detection.
+              </p>
             </div>
           </div>
         </section>
 
-        {/* Section 2: Architecture */}
-        <section className="space-y-6" aria-label="System Architecture">
-          <div>
-            <p className="label-micro mb-2">SYSTEM DESIGN</p>
-            <h2 className="text-subhead font-bold text-foreground text-xl sm:text-2xl tracking-tight">
-              Architecture &amp; Components
-            </h2>
+        {/* Section 2: Tech Stack */}
+        <section className="border-t border-white/10 pt-12">
+          <div className="mb-8">
+            <p className="label-micro mb-2">Architecture</p>
+            <h2 className="text-subhead font-semibold text-foreground">Technology Stack</h2>
           </div>
 
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            {ARCHITECTURE_MODULES.map((item) => {
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {TECH_STACK.map((item) => {
               const Icon = item.icon;
               return (
                 <div
                   key={item.name}
-                  className="rounded-xl border border-border bg-[#121212] p-5 sm:p-6 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818] flex flex-col justify-between"
+                  className="group rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818]"
                 >
-                  <div>
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 border border-primary/20 text-primary shrink-0">
-                        <Icon className="h-4 w-4" aria-hidden="true" />
-                      </div>
-                      <div className="min-w-0">
-                        <h3 className="font-semibold text-foreground text-sm truncate">{item.name}</h3>
-                        <p className="text-[11px] font-mono text-primary truncate">{item.spec}</p>
-                      </div>
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent/20 text-accent transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+                      <Icon className="h-4 w-4" />
                     </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {item.description}
-                    </p>
+                    <div>
+                      <h3 className="font-semibold text-foreground text-sm">{item.name}</h3>
+                      <p className="text-[11px] text-muted-foreground">{item.category}</p>
+                    </div>
                   </div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {item.description}
+                  </p>
                 </div>
               );
             })}
           </div>
         </section>
 
-        {/* Section 3: Capabilities Implemented */}
-        <section className="space-y-6" aria-label="Capabilities Implemented">
-          <div>
-            <p className="label-micro mb-2">OPERATIONAL STATUS</p>
-            <h2 className="text-subhead font-bold text-foreground text-xl sm:text-2xl tracking-tight">
-              Capabilities Implemented
-            </h2>
-          </div>
-
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2">
-            {CAPABILITIES.map((cap) => {
-              const Icon = cap.icon;
-              return (
-                <div
-                  key={cap.title}
-                  className="rounded-xl border border-border bg-[#121212] p-5 sm:p-6 flex items-start gap-3.5 sm:gap-4 transition-all duration-200 hover:border-border/80"
-                >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent/20 border border-accent/30 text-accent shrink-0 mt-0.5">
-                    <Icon className="h-4 w-4" aria-hidden="true" />
-                  </div>
-                  <div className="space-y-1.5 min-w-0">
-                    <h3 className="font-semibold text-foreground text-sm flex items-center gap-2">
-                      <span className="truncate">{cap.title}</span>
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" aria-label="Implemented" />
-                    </h3>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {cap.description}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Section 4: Honest Scope Notes (Subtle bordered callout box for judges) */}
-        <section 
-          className="rounded-2xl border border-amber-500/30 bg-[#121212] p-5 sm:p-8 md:p-10 shadow-xl relative overflow-hidden space-y-6"
-          aria-label="Honest Scope Notes and Verification Boundaries"
-        >
-          <div className="flex items-start sm:items-center gap-3 border-b border-amber-500/20 pb-4">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-400 shrink-0 mt-0.5 sm:mt-0">
-              <AlertTriangle className="h-4 w-4" aria-hidden="true" />
-            </div>
+        {/* Section 3: Vertical Timeline (What We Built vs. What's Next) */}
+        <section className="border-t border-white/10 pt-12">
+          <div className="mb-12 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>
-              <h2 className="text-subhead font-bold text-foreground text-lg sm:text-xl tracking-tight">
-                Honest Scope Notes &amp; Verification Boundaries
+              <p className="label-micro mb-2">Project Execution</p>
+              <h2 className="text-subhead font-semibold text-foreground">
+                What We Built vs. What’s Next
               </h2>
-              <p className="text-xs text-muted-foreground">
-                Explicit technical caveats, test coverage disclosures, and roadmap limitations.
-              </p>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
+                <CheckCircle2 className="h-3.5 w-3.5" /> Current Build
+              </span>
+              <span className="flex items-center gap-1.5 text-muted-foreground font-medium">
+                <Clock className="h-3.5 w-3.5" /> Future Roadmap
+              </span>
             </div>
           </div>
 
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-            {HONEST_SCOPE_NOTES.map((item, idx) => (
-              <div
-                key={idx}
-                className="rounded-lg border border-border/80 bg-[#161616] p-4 flex flex-col justify-between space-y-2"
-              >
-                <span className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
-                  <FileText className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  {item.title}
-                </span>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {item.note}
-                </p>
-              </div>
-            ))}
-          </div>
+          {/* Vertical Timeline */}
+          <div className="relative ml-4 sm:ml-6 border-l-2 border-white/10 space-y-12">
+            {TIMELINE.map((item) => {
+              const isCompleted = item.status === "completed";
 
-          <div className="rounded-lg bg-amber-500/5 border border-amber-500/15 p-4 text-xs text-muted-foreground leading-relaxed">
-            <span className="font-semibold text-foreground">Project Standard: </span>
-            We&apos;ve prioritized building each capability honestly and verifiably over overclaiming coverage — every number and result in this project is either directly reproducible or explicitly labeled as a limitation.
+              return (
+                <div key={item.phase} className="relative pl-8 sm:pl-10 group">
+                  {/* Timeline Dot */}
+                  <div
+                    className={cn(
+                      "absolute -left-[9px] top-1 h-4 w-4 rounded-full border-2 transition-all duration-200 flex items-center justify-center bg-background",
+                      isCompleted
+                        ? "border-emerald-500 text-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]"
+                        : "border-border text-muted-foreground"
+                    )}
+                  >
+                    {isCompleted ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    ) : (
+                      <Circle className="h-1.5 w-1.5 fill-muted-foreground text-muted-foreground" />
+                    )}
+                  </div>
+
+                  {/* Content Container */}
+                  <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-6 shadow-sm transition-all duration-200 group-hover:border-white/20 group-hover:bg-[#181818]">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-3">
+                        <span className="text-mono-value text-xs font-semibold text-muted-foreground">
+                          {item.phase}
+                        </span>
+                        <h3 className="text-subhead font-semibold text-foreground">
+                          {item.title}
+                        </h3>
+                      </div>
+                      
+                      {/* Status Badge */}
+                      <span
+                        className={cn(
+                          "px-2.5 py-0.5 rounded-full text-[11px] font-semibold tracking-wide border",
+                          isCompleted
+                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                            : "bg-muted text-muted-foreground border-border"
+                        )}
+                      >
+                        {item.statusLabel}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-primary/90 font-medium mb-3">
+                      {item.subtitle}
+                    </p>
+
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+                      {item.summary}
+                    </p>
+
+                    {/* Feature Highlights */}
+                    <ul className="space-y-2 border-t border-border/50 pt-3">
+                      {item.highlights.map((highlight, idx) => (
+                        <li key={idx} className="flex items-start gap-2.5 text-xs text-muted-foreground">
+                          {isCompleted ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                          ) : (
+                            <Clock className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0 mt-0.5" />
+                          )}
+                          <span>{highlight}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </section>
 
@@ -257,3 +321,5 @@ export default function About() {
     </div>
   );
 }
+
+

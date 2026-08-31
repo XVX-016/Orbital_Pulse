@@ -30,91 +30,120 @@ const FEATURES = [
   },
 ];
 
-interface PlanetaryEventItem {
+interface EonetEventItem {
   title: string;
   category: string;
   date: string;
   id: string;
   coordinates?: [number, number]; // [lng, lat]
-  image: string;
-  description: string;
 }
 
-const PLANETARY_EVENTS: PlanetaryEventItem[] = [
-  {
-    title: "Tropospheric Aerosol & Smog Dispersion Plume",
-    category: "Air Pollution",
-    date: "03.20.25",
-    id: "event-air-pollution",
-    coordinates: [77.20, 28.61],
-    image: "/air_pollution.jpg",
-    description: "Multispectral Sentinel-5P TROPOMI & MODIS aerosol optical depth analysis tracking particulate matter concentration and transboundary smog plumes.",
-  },
-  {
-    title: "Urban Heat Island & Thermal Emission Corridor",
-    category: "Urban Thermal",
-    date: "03.18.25",
-    id: "event-delhi",
-    coordinates: [77.10, 28.70],
-    image: "/delhi.jpeg",
-    description: "High-resolution thermal infrared radiometric tracking of surface temperature anomalies, land cover shifts, and urban microclimates in Delhi NCR.",
-  },
-  {
-    title: "Volcanic Caldera & High-Temperature Thermal Anomaly",
-    category: "Volcanic Activity",
-    date: "03.16.25",
-    id: "event-fire",
-    coordinates: [14.99, 37.75],
-    image: "/fire.jpg",
-    description: "Shortwave infrared (SWIR) radiometric sensors monitoring active lava effusion, pyroclastic plumes, and ground thermal deformation.",
-  },
-  {
-    title: "River Basin Monsoon Inundation & Hydrological Surge",
-    category: "Flood Inundation",
-    date: "03.14.25",
-    id: "event-ganga",
-    coordinates: [85.13, 25.61],
-    image: "/ganga.jpg",
-    description: "Synthetic Aperture Radar (SAR) C-band water penetration quantifying flooded acreage, delta sediment transport, and river bank expansion.",
-  },
-  {
-    title: "Severe Tropical Cyclone Vortex & Convective Wall",
-    category: "Severe Storms",
-    date: "03.12.25",
-    id: "event-tropical-storm",
-    coordinates: [-138.50, 22.10],
-    image: "/tropical_storm.jpg",
-    description: "Geostationary and low-Earth orbit scatterometer wind vector telemetry capturing rapid intensification, eye wall structure, and storm surge.",
-  },
-  {
-    title: "Boreal Canopy Wildfire & Extreme Thermal Front",
-    category: "Wildfires",
-    date: "03.10.25",
-    id: "event-wildfire",
-    coordinates: [-119.50, 49.80],
-    image: "/wildfire.jpg",
-    description: "Mid-wave infrared active fire perimeter tracing, pyrocumulonimbus cloud formation, and burn severity index mapping.",
-  },
-];
+const CATEGORY_IMAGES: Record<string, string> = {
+  wildfire: "https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?auto=format&fit=crop&w=800&q=80",
+  storm: "https://images.unsplash.com/photo-1527482797697-8795b05a13fe?auto=format&fit=crop&w=800&q=80",
+  flood: "https://images.unsplash.com/photo-1547683905-f686c993aae5?auto=format&fit=crop&w=800&q=80",
+  ice: "https://images.unsplash.com/photo-1517783999520-f068d7431a60?auto=format&fit=crop&w=800&q=80",
+  volcano: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=800&q=80",
+  default: "/hero-satellite.jpg",
+};
 
 function getCategoryIcon(category: string) {
   const c = category.toLowerCase();
-  if (c.includes("wildfire") || c.includes("fire") || c.includes("volcano") || c.includes("thermal")) return Flame;
+  if (c.includes("fire") || c.includes("wildfire")) return Flame;
   if (c.includes("storm") || c.includes("cyclone") || c.includes("typhoon") || c.includes("hurricane")) return Wind;
-  if (c.includes("flood") || c.includes("water") || c.includes("sea") || c.includes("river") || c.includes("ganga")) return Waves;
-  if (c.includes("pollution") || c.includes("air") || c.includes("smoke") || c.includes("haze")) return Wind;
-  if (c.includes("temp") || c.includes("heat") || c.includes("urban") || c.includes("delhi")) return Thermometer;
+  if (c.includes("flood") || c.includes("water") || c.includes("sea")) return Waves;
+  if (c.includes("temp") || c.includes("heat") || c.includes("volcano")) return Thermometer;
   return Globe2;
+}
+
+function getEventImageUrl(item: EonetEventItem): string {
+  const cat = item.category.toLowerCase();
+  if (cat.includes("fire") || cat.includes("wildfire")) return CATEGORY_IMAGES.wildfire;
+  if (cat.includes("storm") || cat.includes("cyclone") || cat.includes("hurricane") || cat.includes("typhoon")) return CATEGORY_IMAGES.storm;
+  if (cat.includes("flood") || cat.includes("water") || cat.includes("sea")) return CATEGORY_IMAGES.flood;
+  if (cat.includes("ice") || cat.includes("snow")) return CATEGORY_IMAGES.ice;
+  if (cat.includes("volcano") || cat.includes("temp") || cat.includes("heat")) return CATEGORY_IMAGES.volcano;
+  return CATEGORY_IMAGES.default;
 }
 
 export default function Index() {
   const navigate = useNavigate();
-  const [events] = useState<PlanetaryEventItem[]>(PLANETARY_EVENTS);
+  const [events, setEvents] = useState<EonetEventItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
 
-  const activeEvents = events;
+  useEffect(() => {
+    fetch("https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=6")
+      .then((res) => {
+        if (!res.ok) throw new Error("Network response was not ok");
+        return res.json();
+      })
+      .then((data) => {
+        if (data && data.events && data.events.length > 0) {
+          const parsed: EonetEventItem[] = data.events.map((ev: any) => {
+            const title = ev.title || "Unknown Event";
+            const category = ev.categories?.[0]?.title || "Natural Event";
+            const dateStr = ev.geometry?.[0]?.date;
+            let date = "Recent";
+            if (dateStr) {
+              const d = new Date(dateStr);
+              date = `${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}.${String(
+                d.getFullYear()
+              ).slice(2)}`;
+            }
+
+            let coordinates: [number, number] | undefined = undefined;
+            const geom = ev.geometry?.[0];
+            if (geom && geom.coordinates) {
+              if (typeof geom.coordinates[0] === "number" && typeof geom.coordinates[1] === "number") {
+                coordinates = [geom.coordinates[0], geom.coordinates[1]];
+              } else if (Array.isArray(geom.coordinates[0])) {
+                const first = Array.isArray(geom.coordinates[0][0]) ? geom.coordinates[0][0] : geom.coordinates[0];
+                if (typeof first[0] === "number" && typeof first[1] === "number") {
+                  coordinates = [first[0], first[1]];
+                }
+              }
+            }
+
+            return { title, category, date, id: ev.id || title, coordinates };
+          });
+          setEvents(parsed);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to fetch EONET events:", err);
+      });
+  }, []);
+
+  const fallbackEvents: EonetEventItem[] = useMemo(
+    () => [
+      {
+        title: "Pacific Atmospheric River & Cyclone Track",
+        category: "Severe Storms",
+        date: "03.18.25",
+        id: "fallback-1",
+        coordinates: [-140.0, 35.0],
+      },
+      {
+        title: "Sub-Saharan Thermal Anomaly Cluster",
+        category: "Wildfires",
+        date: "03.15.25",
+        id: "fallback-2",
+        coordinates: [15.0, 10.0],
+      },
+      {
+        title: "North Atlantic Sea Surface Temperature Drift",
+        category: "Sea and Lake Ice",
+        date: "03.10.25",
+        id: "fallback-3",
+        coordinates: [-30.0, 50.0],
+      },
+    ],
+    []
+  );
+
+  const activeEvents = events.length > 0 ? events : fallbackEvents;
   const currentEvent = activeEvents[currentIndex % activeEvents.length];
   const CategoryIcon = getCategoryIcon(currentEvent.category);
 
@@ -135,6 +164,18 @@ export default function Index() {
   const handleAnalyzeEvent = () => {
     navigate(`/analyze?query=${encodeURIComponent(`Analyze ${currentEvent.title}`)}`);
   };
+
+  const eventImgUrl = getEventImageUrl(currentEvent);
+  const catKey = currentEvent.category.toLowerCase();
+  const fallbackCatImg = catKey.includes("fire")
+    ? CATEGORY_IMAGES.wildfire
+    : catKey.includes("storm")
+    ? CATEGORY_IMAGES.storm
+    : catKey.includes("flood")
+    ? CATEGORY_IMAGES.flood
+    : catKey.includes("ice")
+    ? CATEGORY_IMAGES.ice
+    : CATEGORY_IMAGES.default;
 
   return (
     <div className="overflow-hidden">
@@ -168,7 +209,7 @@ export default function Index() {
             </p>
             <div className="mt-8 flex justify-center">
               <Button asChild size="lg" className="shadow-lg hover:shadow-primary/20">
-                <Link to="/analyze" aria-label="Open SatQuery AI Workspace">
+                <Link to="/analyze">
                   Try SatQuery AI
                   <ArrowUpRight aria-hidden="true" className="ml-1 h-4 w-4" />
                 </Link>
@@ -179,20 +220,17 @@ export default function Index() {
       </section>
 
       {/* Feature Cards Grid */}
-      <section className="relative z-10 border-y border-border bg-background px-6 py-12" aria-label="Core Capabilities">
+      <section className="relative z-10 border-y border-border bg-background px-6 py-12">
         <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
           {FEATURES.map(({ icon: Icon, label, detail, to }) => (
             <Link
               key={label}
               to={to}
-              className="group flex items-start gap-4 border-l border-border pl-4 transition-colors hover:border-accent"
-              aria-label={`${label} - ${detail}`}
+              className="group flex items-start gap-4 rounded-lg border-l border-border pl-4 pr-3 py-3 transition-all duration-150 hover:border-accent hover:bg-card/60"
             >
-              <Icon
-                aria-hidden="true"
-                className="mt-0.5 h-5 w-5 shrink-0 text-accent transition-colors group-hover:text-primary"
-                strokeWidth={1.5}
-              />
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/10 border border-accent/20 text-accent transition-colors group-hover:bg-primary/10 group-hover:border-primary/30 group-hover:text-primary">
+                <Icon aria-hidden="true" className="h-4 w-4" strokeWidth={1.5} />
+              </div>
               <span>
                 <span className="block text-body font-semibold text-foreground">{label}</span>
                 <span className="mt-1 block text-caption text-muted-foreground">{detail}</span>
@@ -203,7 +241,7 @@ export default function Index() {
       </section>
 
       {/* Featured Earth Event Section */}
-      <section className="relative z-10 bg-background px-6 py-16" aria-label="Active Planetary Telemetry">
+      <section className="relative z-10 bg-background px-6 py-16">
         <div className="mx-auto max-w-[1400px]">
           <div className="mb-6 flex items-center justify-between">
             <div>
@@ -218,75 +256,70 @@ export default function Index() {
               <button
                 type="button"
                 onClick={handlePrev}
-                aria-label="Previous telemetry event"
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-[#121212] text-foreground transition-colors hover:border-primary hover:bg-[#181818] focus:outline-none focus:ring-1 focus:ring-primary"
+                aria-label="Previous event"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-[#121212] text-foreground transition-colors hover:border-primary hover:bg-[#181818]"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <button
                 type="button"
                 onClick={handleNext}
-                aria-label="Next telemetry event"
-                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-[#121212] text-foreground transition-colors hover:border-primary hover:bg-[#181818] focus:outline-none focus:ring-1 focus:ring-primary"
+                aria-label="Next event"
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-[#121212] text-foreground transition-colors hover:border-primary hover:bg-[#181818]"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
           </div>
 
-          {/* Event Card with Fixed Dimensions & Uniform Layout */}
-          <div className="relative overflow-hidden rounded-xl border border-border bg-[#121212] shadow-xl md:h-[280px]">
-            <div className="flex flex-col md:flex-row items-stretch h-full">
-              {/* Event Image Thumbnail Container - Fixed Size */}
-              <div className="relative w-full md:w-80 lg:w-[380px] shrink-0 h-60 md:h-full overflow-hidden bg-neutral-950">
+          {/* Event Card with Thumbnail Image & Gradient Overlay */}
+          <div className="relative overflow-hidden rounded-xl border border-border bg-[#121212] shadow-xl">
+            <div className="flex flex-col md:flex-row items-stretch">
+              {/* Event Image Thumbnail Container */}
+              <div className="relative w-full md:w-72 lg:w-80 shrink-0 h-52 bg-black/40 overflow-hidden">
                 {!imgLoaded && !imgError && (
                   <div className="absolute inset-0 animate-pulse bg-neutral-800/80 flex items-center justify-center">
                     <Globe2 className="h-8 w-8 text-neutral-600 animate-spin" />
                   </div>
                 )}
                 <img
-                  src={currentEvent.image}
-                  alt={`${currentEvent.title} - ${currentEvent.category} satellite telemetry observation`}
+                  src={imgError ? fallbackCatImg : eventImgUrl}
+                  alt={currentEvent.title}
                   onLoad={() => setImgLoaded(true)}
                   onError={() => {
                     setImgError(true);
                     setImgLoaded(true);
                   }}
-                  className={`h-full w-full object-cover object-center transition-opacity duration-300 ${
+                  className={`h-full w-full object-cover transition-opacity duration-300 ${
                     imgLoaded ? "opacity-100" : "opacity-0"
                   }`}
-                  loading="eager"
                 />
                 {/* Gradient overlay for smooth transition */}
-                <div className="absolute inset-0 pointer-events-none bg-gradient-to-t md:bg-gradient-to-r from-transparent via-[#121212]/30 to-[#121212]" />
+                <div className="absolute inset-0 bg-gradient-to-t md:bg-gradient-to-r from-transparent via-[#121212]/40 to-[#121212]" />
               </div>
 
-              {/* Event Card Content - Fixed Structure */}
-              <div className="flex-1 p-6 sm:p-8 flex flex-col justify-between gap-4 z-10 min-w-0">
-                <div className="space-y-2.5">
+              {/* Event Card Content */}
+              <div className="flex-1 p-6 sm:p-8 flex flex-col justify-between gap-6 z-10">
+                <div className="space-y-3">
                   <div className="flex items-center gap-2 text-accent">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-md bg-accent/15 border border-accent/30 text-accent shrink-0">
-                      <CategoryIcon className="h-4 w-4" />
-                    </div>
-                    <span className="label-micro !mb-0 text-accent font-semibold tracking-wider truncate">
+                    <CategoryIcon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="label-micro !mb-0 text-accent font-semibold tracking-wider">
                       {currentEvent.category} &bull; {currentEvent.date}
                     </span>
                   </div>
-                  <h2 className="text-title font-semibold text-foreground text-lg sm:text-xl md:text-2xl tracking-tight line-clamp-1">
+                  <h2 className="text-title font-semibold text-foreground text-xl sm:text-2xl tracking-tight">
                     {currentEvent.title}
                   </h2>
-                  <p className="text-caption text-muted-foreground leading-relaxed line-clamp-2">
-                    {currentEvent.description}
+                  <p className="text-caption text-muted-foreground leading-relaxed max-w-2xl">
+                    Real-time environmental event tracked by satellite sensors. SatQuery AI can query multi-modal imagery for active event zones.
                   </p>
                 </div>
 
-                <div className="flex items-center justify-between border-t border-border/50 pt-4 mt-auto">
-                  {currentEvent.coordinates ? (
+                <div className="flex items-center justify-between border-t border-border/50 pt-4">
+                  {currentEvent.coordinates && (
                     <span className="text-xs font-mono text-muted-foreground">
                       LAT: {currentEvent.coordinates[1].toFixed(2)}&deg; &bull; LON: {currentEvent.coordinates[0].toFixed(2)}&deg;
                     </span>
-                  ) : (
-                    <span className="text-xs font-mono text-muted-foreground">GLOBAL SATELLITE TELEMETRY</span>
                   )}
                   <Button
                     type="button"
@@ -294,7 +327,6 @@ export default function Index() {
                     size="sm"
                     onClick={handleAnalyzeEvent}
                     className="ml-auto bg-[#181818] border-border hover:border-primary"
-                    aria-label={`Query and analyze ${currentEvent.title}`}
                   >
                     Query Event
                     <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />

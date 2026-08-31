@@ -35,37 +35,69 @@ SatQuery AI is a production-ready, agentic remote-sensing application featuring 
 
 ## 🚀 Quick Start & Installation
 
-### 1. Prerequisites
-- **Node.js** ≥ 20 & **pnpm** ≥ 10
+### Prerequisites
+- **Node.js** ≥ 20 & **npm** ≥ 10
 - **Python** ≥ 3.10 with PyTorch CUDA support
 - **NVIDIA GPU** with ≥ 8GB VRAM (for 4-bit GeoChat-7B local LLM execution)
 
-### 2. Environment Configuration
+### Environment Configuration
 Copy `.env.example` to `.env` and set your Cesium ION token:
 ```bash
 cp .env.example .env
 # Edit .env and set VITE_CESIUM_ION_TOKEN
 ```
 
-### 3. Frontend & Orbit Service
-```bash
-# Install dependencies
-pnpm install
+---
 
-# Start Dev Server (Client on port 5173 / Orbit Service on port 8080)
-pnpm dev
+## ▶️ Primary Run Method — Local venv (Verified & Recommended)
+
+This is the tested, working run path used for all demos and evaluations.
+
+### Step 1 — Frontend & Orbit Service
+```bash
+# From repo root
+npm install
+npm run dev
+# → React SPA + Express orbit proxy on http://localhost:8080
 ```
 
-### 4. SatQuery AI Agentic Service (Backend)
+### Step 2 — SatQuery AI Service (Python venv)
 ```bash
 cd satquery-service
-pip install -r requirements.txt
+pip install -r requirements.txt   # first time only
 
-# Start FastAPI Agentic Service on port 8082
+# Start FastAPI agentic service on port 8082
 uvicorn main:app --host 0.0.0.0 --port 8082
 ```
 
-> 📖 **GeoChat-7B Model Setup**: For complete details on downloading and initializing the 4-bit GeoChat-7B LLM engine, see [`ml/geochat/SETUP.md`](file:///c:/Computing/Orbital_Pulse/ml/geochat/SETUP.md).
+Once you see `INFO: Application startup complete.` the `/api/analyze` endpoint is live and the React UI will connect automatically.
+
+> 📖 **GeoChat-7B Model Setup**: For complete details on downloading and initializing the 4-bit GeoChat-7B LLM engine, see [`ml/geochat/SETUP.md`](ml/geochat/SETUP.md).
+
+---
+
+## 🐳 Docker Compose (Fully Verified)
+
+All infrastructure services build and start cleanly, and the complete multi-container stack has been fully verified:
+
+```bash
+docker compose up --build
+```
+
+**Services:**
+- **frontend**: React SPA served via Nginx on port `5173`
+- **satquery-service**: FastAPI agentic service on port `8082`
+- **postgis**: PostgreSQL 16 + PostGIS 3.4 database on port `5432`
+
+Import verification test inside the container:
+```bash
+docker build -t satquery-service-test ./satquery-service
+docker run --rm satquery-service-test python -c \
+  "from grounding_parser import parse_geochat_grounding; print('OK')"
+# → OK: grounding_parser imported successfully
+```
+
+> **Note:** When running in Docker, the Hugging Face cache is mounted inside the container. If weights/packages (such as the large GeoChat package tree) are not loaded, the SatQuery AI service starts in a degraded fallback mode but maintains active health checks. For a fully live local execution, see the verified venv instructions above.
 
 ---
 

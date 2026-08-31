@@ -84,6 +84,9 @@ ml/geochat/finetune/dataset/
 
 # Temporary generated images
 public/nasa_check_tmp.jpg
+# Debug output files from development sessions
+debug_out*.txt
 
-
+# Temporary data fetch scripts
+satquery-service/scripts/fetch_real_sat_data.py
 

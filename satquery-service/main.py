@@ -8,10 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+import base64
+import io
 import torch
 from PIL import Image
 
 from controller import route_and_execute
+from geochat_engine import load_image_robust
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -90,16 +93,23 @@ async def analyze_query(request: Request):
         temporal = form.get("temporal", "single")
         
         # Collect file uploads if present
+        preview_base64_list = []
         for key in form:
             val = form[key]
             if hasattr(val, "filename") and val.filename:
                 contents = await val.read()
-                import io
-                try:
-                    img = Image.open(io.BytesIO(contents)).convert("RGB")
+                img = load_image_robust(contents)
+                if img is not None:
                     images_payload.append(img)
-                except Exception as img_err:
-                    logger.warning(f"Could not parse uploaded file as PIL Image: {img_err}")
+                    try:
+                        buf = io.BytesIO()
+                        img.save(buf, format="JPEG", quality=85)
+                        b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        preview_base64_list.append(f"data:image/jpeg;base64,{b64_str}")
+                    except Exception as e:
+                        logger.warning(f"Could not generate base64 preview: {e}")
+                else:
+                    logger.warning(f"Could not decode uploaded file '{val.filename}' via PIL or rasterio — skipping.")
 
     if not user_query:
         raise HTTPException(status_code=400, detail="Query string is required.")
@@ -109,11 +119,23 @@ async def analyze_query(request: Request):
         before_path = f"data/{scenario}/before.tif"
         after_path = f"data/{scenario}/after.tif"
         if os.path.exists(before_path) and os.path.exists(after_path):
-            try:
-                images_payload = [Image.open(before_path).convert("RGB"), Image.open(after_path).convert("RGB")]
-            except Exception:
-                images_payload = [before_path, after_path]
-            temporal = "bi-temporal"
+            before_img = load_image_robust(before_path)
+            after_img = load_image_robust(after_path)
+            if before_img and after_img:
+                images_payload = [before_img, after_img]
+                temporal = "bi-temporal"
+                # Encode both scenario images to base64 for frontend slider preview
+                scenario_previews = []
+                for s_img in [before_img, after_img]:
+                    try:
+                        buf = io.BytesIO()
+                        s_img.save(buf, format="JPEG", quality=85)
+                        b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        scenario_previews.append(f"data:image/jpeg;base64,{b64_str}")
+                    except Exception as e:
+                        logger.warning(f"Could not generate scenario base64 preview: {e}")
+                if len(scenario_previews) == 2:
+                    preview_base64_list = scenario_previews
 
     # Route through controller
     response = route_and_execute(
@@ -122,6 +144,11 @@ async def analyze_query(request: Request):
         modality=modality or "optical",
         temporal=temporal or "single"
     )
+
+    if isinstance(response, dict):
+        if 'preview_base64_list' in locals() and preview_base64_list:
+            response["preview_images_base64"] = preview_base64_list
+            response["preview_image_base64"] = preview_base64_list[0]
 
     return response
 
