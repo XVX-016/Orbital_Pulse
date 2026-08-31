@@ -117,15 +117,15 @@ export default function GlobeCanvas() {
       scene.skyAtmosphere.hueShift = -0.1;
     }
 
-    // Setup NASA GIBS Imagery Layer with fallback
+    // Setup NASA GIBS Imagery Layer with robust fallback
     const setupImagery = async () => {
       try {
         const date = new Date();
-        date.setDate(date.getDate() - 1);
+        date.setDate(date.getDate() - 2); // 2 days ago for guaranteed NASA GIBS processing availability
         const dateStr = date.toISOString().split("T")[0];
 
         const gibsProvider = new WebMapTileServiceImageryProvider({
-          url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${dateStr}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.jpg`,
+          url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${dateStr}/GoogleMapsCompatible_Level9/{TileMatrix}/{TileRow}/{TileCol}.jpg`,
           layer: "VIIRS_SNPP_CorrectedReflectance_TrueColor",
           style: "default",
           format: "image/jpeg",
@@ -134,44 +134,17 @@ export default function GlobeCanvas() {
           credit: "NASA GIBS",
         });
 
-        // Track tile errors — only fall back on sustained failures, not per-tile noise
         let hasFallenBack = false;
-        let tileErrorCount = 0;
-        let errorWindowStart = Date.now();
-        const ERROR_THRESHOLD = 5;
-        const ERROR_WINDOW_MS = 30_000; // 30 seconds
-
-        gibsProvider.errorEvent.addEventListener(async (error: unknown) => {
+        gibsProvider.errorEvent.addEventListener(async () => {
           if (hasFallenBack) return;
-
-          // Log every error so we can diagnose what GIBS is actually returning
-          console.warn("[GIBS tile error]", {
-            message: error instanceof Error ? error.message : String(error),
-            error,
-            timestamp: new Date().toISOString(),
-          });
-
-          // Reset counter if outside the rolling window
-          const now = Date.now();
-          if (now - errorWindowStart > ERROR_WINDOW_MS) {
-            tileErrorCount = 0;
-            errorWindowStart = now;
-          }
-
-          tileErrorCount++;
-
-          if (tileErrorCount >= ERROR_THRESHOLD) {
-            hasFallenBack = true;
-            console.warn(
-              `NASA GIBS hit ${ERROR_THRESHOLD} tile errors within ${ERROR_WINDOW_MS / 1000}s — falling back to Cesium World Imagery`
-            );
-            try {
-              viewer.imageryLayers.removeAll();
-              const fallbackProvider = await createWorldImageryAsync();
-              viewer.imageryLayers.addImageryProvider(fallbackProvider);
-            } catch (fallbackErr) {
-              console.error("Cesium World Imagery fallback failed:", fallbackErr);
-            }
+          hasFallenBack = true;
+          console.warn("NASA GIBS tile fetch warning — loading Cesium World Imagery fallback");
+          try {
+            const fallbackProvider = await createWorldImageryAsync();
+            viewer.imageryLayers.removeAll();
+            viewer.imageryLayers.addImageryProvider(fallbackProvider);
+          } catch (fallbackErr) {
+            console.error("Cesium World Imagery fallback failed:", fallbackErr);
           }
         });
 
@@ -180,8 +153,8 @@ export default function GlobeCanvas() {
       } catch (err) {
         console.error("Failed to load NASA GIBS, falling back to World Imagery", err);
         try {
-          viewer.imageryLayers.removeAll();
           const fallbackProvider = await createWorldImageryAsync();
+          viewer.imageryLayers.removeAll();
           viewer.imageryLayers.addImageryProvider(fallbackProvider);
         } catch (e) {
           console.error("Fallback imagery failed", e);

@@ -24,7 +24,7 @@ const GlobeContext = createContext<GlobeContextType | null>(null);
 
 export function GlobeProvider({ children }: { children: React.ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(true);
-  const [showSatellitePoints, setShowSatellitePoints] = useState(false);
+  const [showSatellitePoints, setShowSatellitePoints] = useState(true);
   const [satellites, setSatellites] = useState<SatelliteData[]>(() => parseTLECatalog(HARDCODED_TLE_STRING));
   const [selectedSat, setSelectedSat] = useState<SatelliteData | null>(null);
   const [selectedPos, setSelectedPos] = useState<SatellitePosition | null>(null);
