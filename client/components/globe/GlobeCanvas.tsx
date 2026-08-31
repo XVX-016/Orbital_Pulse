@@ -117,15 +117,32 @@ export default function GlobeCanvas() {
       scene.skyAtmosphere.hueShift = -0.1;
     }
 
-    // Setup high-definition satellite imagery layer (Cesium World Imagery + NASA GIBS)
+    // Setup NASA GIBS WMTS high-resolution Earth satellite imagery layer
     const setupImagery = async () => {
       try {
         viewer.imageryLayers.removeAll();
-        // Load high-resolution global satellite imagery base layer
-        const worldImagery = await createWorldImageryAsync();
-        viewer.imageryLayers.addImageryProvider(worldImagery);
+
+        // 1. Try NASA GIBS BlueMarble / VIIRS TrueColor WMTS
+        const gibsProvider = new WebMapTileServiceImageryProvider({
+          url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{TileMatrix}/{TileRow}/{TileCol}.jpeg",
+          layer: "BlueMarble_ShadedRelief_Bathymetry",
+          style: "default",
+          format: "image/jpeg",
+          tileMatrixSetID: "GoogleMapsCompatible_Level8",
+          maximumLevel: 8,
+          credit: "NASA GIBS / Earthdata",
+        });
+
+        viewer.imageryLayers.addImageryProvider(gibsProvider);
       } catch (err) {
-        console.error("Failed to load high-res imagery provider", err);
+        console.warn("NASA GIBS tile fetch error — using World Imagery fallback:", err);
+        try {
+          const fallbackProvider = await createWorldImageryAsync();
+          viewer.imageryLayers.removeAll();
+          viewer.imageryLayers.addImageryProvider(fallbackProvider);
+        } catch (e) {
+          console.error("Fallback imagery failed", e);
+        }
       }
     };
     setupImagery();
