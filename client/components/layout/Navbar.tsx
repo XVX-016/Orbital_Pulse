@@ -3,6 +3,7 @@ import { Link, NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
+  { to: "/globe", label: "Globe" },
   { to: "/analyze", label: "Analyze" },
   { to: "/about", label: "About" },
 ];
