@@ -117,48 +117,15 @@ export default function GlobeCanvas() {
       scene.skyAtmosphere.hueShift = -0.1;
     }
 
-    // Setup NASA GIBS Imagery Layer with robust fallback
+    // Setup high-definition satellite imagery layer (Cesium World Imagery + NASA GIBS)
     const setupImagery = async () => {
       try {
-        const date = new Date();
-        date.setDate(date.getDate() - 2); // 2 days ago for guaranteed NASA GIBS processing availability
-        const dateStr = date.toISOString().split("T")[0];
-
-        const gibsProvider = new WebMapTileServiceImageryProvider({
-          url: `https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_SNPP_CorrectedReflectance_TrueColor/default/${dateStr}/GoogleMapsCompatible_Level9/{TileMatrix}/{TileRow}/{TileCol}.jpg`,
-          layer: "VIIRS_SNPP_CorrectedReflectance_TrueColor",
-          style: "default",
-          format: "image/jpeg",
-          tileMatrixSetID: "GoogleMapsCompatible_Level9",
-          maximumLevel: 9,
-          credit: "NASA GIBS",
-        });
-
-        let hasFallenBack = false;
-        gibsProvider.errorEvent.addEventListener(async () => {
-          if (hasFallenBack) return;
-          hasFallenBack = true;
-          console.warn("NASA GIBS tile fetch warning — loading Cesium World Imagery fallback");
-          try {
-            const fallbackProvider = await createWorldImageryAsync();
-            viewer.imageryLayers.removeAll();
-            viewer.imageryLayers.addImageryProvider(fallbackProvider);
-          } catch (fallbackErr) {
-            console.error("Cesium World Imagery fallback failed:", fallbackErr);
-          }
-        });
-
         viewer.imageryLayers.removeAll();
-        viewer.imageryLayers.addImageryProvider(gibsProvider);
+        // Load high-resolution global satellite imagery base layer
+        const worldImagery = await createWorldImageryAsync();
+        viewer.imageryLayers.addImageryProvider(worldImagery);
       } catch (err) {
-        console.error("Failed to load NASA GIBS, falling back to World Imagery", err);
-        try {
-          const fallbackProvider = await createWorldImageryAsync();
-          viewer.imageryLayers.removeAll();
-          viewer.imageryLayers.addImageryProvider(fallbackProvider);
-        } catch (e) {
-          console.error("Fallback imagery failed", e);
-        }
+        console.error("Failed to load high-res imagery provider", err);
       }
     };
     setupImagery();
