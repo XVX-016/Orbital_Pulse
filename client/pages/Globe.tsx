@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { ChevronRight, Layers3, Pause, Play, Search, X, Satellite, Radio, Crosshair } from "lucide-react";
+import { ChevronRight, Layers3, Pause, Play, Search, X, Satellite, Radio, Crosshair, Globe as GlobeIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useGlobe } from "@/lib/globe-context";
 
@@ -8,7 +8,9 @@ export default function Globe() {
     satellites,
     selectedSat,
     selectedPos,
+    setSelectedSat,
     flyToSatellite,
+    flyToView,
     isPlaying,
     setIsPlaying,
     catalogSource,
@@ -40,6 +42,13 @@ export default function Globe() {
   const handleSelectSatellite = (sat: typeof satellites[0]) => {
     flyToSatellite(sat);
     setIsInspectorOpen(true);
+  };
+
+  // Handle closing inspector drawer and resetting camera to default globe view
+  const handleCloseInspector = () => {
+    setIsInspectorOpen(false);
+    setSelectedSat(null);
+    flyToView("globe");
   };
 
   // Dynamic Inspector Fields formatting
@@ -142,6 +151,19 @@ export default function Globe() {
         </button>
         <button
           type="button"
+          onClick={() => {
+            setSelectedSat(null);
+            flyToView("globe");
+          }}
+          aria-label="Reset to default globe view"
+          className="flex h-11 items-center gap-1.5 px-3 rounded-md border border-border bg-card/90 text-foreground text-xs font-medium backdrop-blur-md transition-colors hover:border-accent hover:bg-popover"
+          title="Recenter camera to default Earth view"
+        >
+          <GlobeIcon aria-hidden="true" className="h-4 w-4 text-primary" />
+          <span>Reset View</span>
+        </button>
+        <button
+          type="button"
           onClick={() => setLayersVisible((visible) => !visible)}
           aria-label="Toggle layers"
           aria-pressed={layersVisible}
@@ -183,8 +205,8 @@ export default function Globe() {
           </div>
           <button
             type="button"
-            onClick={() => setIsInspectorOpen(false)}
-            aria-label="Close satellite inspector"
+            onClick={handleCloseInspector}
+            aria-label="Close satellite inspector and reset view"
             className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
           >
             <X aria-hidden="true" className="h-4 w-4" />
