@@ -180,7 +180,7 @@ export default function Index() {
   return (
     <div className="overflow-hidden">
       {/* Hero Section: Centered text over high-res Earth satellite background visual */}
-      <section className="relative flex min-h-[calc(100vh-64px)] items-end justify-center px-6 pb-24 sm:pb-28 pt-16">
+      <section className="relative flex h-[calc(100vh-4rem)] items-center justify-center px-6 pt-16">
         {/* Background Satellite Visual */}
         <div className="absolute inset-0 z-0 overflow-hidden">
           <img

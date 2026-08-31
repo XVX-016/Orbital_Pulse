@@ -60,7 +60,7 @@ export default function Globe() {
   }, [selectedSat, selectedPos]);
 
   return (
-    <div className="pointer-events-none relative min-h-[calc(100vh-4rem)] overflow-hidden">
+    <div className="pointer-events-none relative h-[calc(100vh-4rem)] overflow-hidden">
       {error && (
         <div className="pointer-events-auto absolute top-4 left-1/2 z-50 -translate-x-1/2 rounded-md bg-destructive/90 px-4 py-2 text-sm font-medium text-destructive-foreground backdrop-blur shadow-lg border border-destructive/50 flex items-center gap-2">
           <span>{error}</span>
