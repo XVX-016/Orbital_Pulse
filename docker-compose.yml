@@ -30,6 +30,9 @@ services:
       - ./satquery-service/raw_data:/app/raw_data:ro
       - ai-data:/app/data
       - ai-previews:/app/public/images
+    depends_on:
+      postgis:
+        condition: service_healthy
     networks:
       - satquery-net
     command: >
@@ -55,6 +58,8 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Runs automatically on first container start (only when pgdata volume is empty)
+      - ./satquery-service/db/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
     networks:
       - satquery-net
     healthcheck:

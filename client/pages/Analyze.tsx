@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft } from "lucide-react";
+import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft, FlaskConical, Leaf, Map, BarChart2, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -81,6 +81,52 @@ interface ExecutionTrace {
   parameters: Record<string, any>;
 }
 
+interface NdviResult {
+  vegetation_pct: number;
+  mean_ndvi: number;
+  valid_pixels: number;
+}
+
+interface LandcoverResult {
+  dense_vegetation_pct: number;
+  sparse_vegetation_pct: number;
+  bare_soil_pct: number;
+  water_or_shadow_pct: number;
+  non_vegetated_pct: number;
+}
+
+interface SpectralChangeResult {
+  changed_pct: number;
+  changed_pixels: number;
+  total_pixels: number;
+  change_area_km2: number | null;
+  georeferenced: boolean;
+}
+
+interface ObjectAreaResult {
+  label: string;
+  box_normalized: number[];
+  area_km2: number | null;
+  area_m2: number | null;
+  georeferenced: boolean;
+}
+
+interface ComputedMetrics {
+  task: string;
+  georeferenced?: boolean;
+  // VQA / single-image
+  ndvi?: NdviResult;
+  landcover?: LandcoverResult;
+  // Change-VQA
+  before_ndvi?: NdviResult;
+  after_ndvi?: NdviResult;
+  before_landcover?: LandcoverResult;
+  after_landcover?: LandcoverResult;
+  spectral_change?: SpectralChangeResult;
+  // Grounding
+  object_areas?: ObjectAreaResult[];
+}
+
 interface AnalyzeResponse {
   answer: string;
   confidence: number | null;
@@ -89,10 +135,139 @@ interface AnalyzeResponse {
     change_percentage?: number | null;
     bounding_boxes?: any[];
   } | null;
+  computed_metrics: ComputedMetrics | null;
   execution_trace: ExecutionTrace;
   preview_image_base64?: string;
   preview_images_base64?: string[];
 }
+
+// ─── Deterministic Metrics Panel ────────────────────────────────────────────
+
+function MetricRow({ label, value, unit, highlight }: { label: string; value: string | number | null; unit?: string; highlight?: boolean }) {
+  if (value === null || value === undefined) return null;
+  return (
+    <div className="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0">
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <span className={`font-mono text-[12px] font-semibold ${highlight ? "text-amber-400" : "text-foreground"}`}>
+        {typeof value === "number" ? value.toFixed(3) : value}{unit ? ` ${unit}` : ""}
+      </span>
+    </div>
+  );
+}
+
+function NdviBlock({ label, ndvi }: { label: string; ndvi: NdviResult }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] font-semibold text-amber-400/80 uppercase tracking-wider flex items-center gap-1">
+        <Leaf className="h-3 w-3" />{label}
+      </p>
+      <MetricRow label="Vegetation Cover" value={ndvi.vegetation_pct} unit="%" highlight />
+      <MetricRow label="Mean NDVI" value={ndvi.mean_ndvi} />
+      <MetricRow label="Valid Pixels" value={ndvi.valid_pixels} />
+    </div>
+  );
+}
+
+function LandcoverBlock({ label, lc }: { label: string; lc: LandcoverResult }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-[10px] font-semibold text-amber-400/80 uppercase tracking-wider flex items-center gap-1">
+        <Map className="h-3 w-3" />{label}
+      </p>
+      <MetricRow label="Dense Veg." value={lc.dense_vegetation_pct} unit="%" />
+      <MetricRow label="Sparse Veg." value={lc.sparse_vegetation_pct} unit="%" />
+      <MetricRow label="Bare Soil" value={lc.bare_soil_pct} unit="%" />
+      <MetricRow label="Water / Shadow" value={lc.water_or_shadow_pct} unit="%" />
+      <MetricRow label="Non-Vegetated" value={lc.non_vegetated_pct} unit="%" />
+    </div>
+  );
+}
+
+function ComputedMetricsPanel({ metrics }: { metrics: ComputedMetrics }) {
+  const task = metrics.task;
+
+  return (
+    <div className="rounded-xl border border-amber-500/25 bg-[#0f0d07] p-5 shadow-xl">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-amber-500/20 pb-3 mb-4">
+        <span className="label-micro text-amber-400/80 flex items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-amber-400" /> DETERMINISTIC MEASUREMENTS
+        </span>
+        <span
+          title="Computed by geospatial_metrics.py — no LLM involved"
+          className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/25 text-amber-400 cursor-help"
+        >
+          {metrics.georeferenced ? "GEOREF ✓" : "NO GEOREF"}
+        </span>
+      </div>
+
+      <div className="space-y-4 text-xs">
+        {/* ── VQA / single-image ── */}
+        {task === "vqa" && (
+          <>
+            {metrics.ndvi && <NdviBlock label="NDVI Coverage" ndvi={metrics.ndvi} />}
+            {metrics.landcover && <LandcoverBlock label="Land Cover" lc={metrics.landcover} />}
+          </>
+        )}
+
+        {/* ── Change VQA ── */}
+        {task === "change_vqa" && (
+          <>
+            {metrics.before_ndvi && <NdviBlock label="Before — NDVI" ndvi={metrics.before_ndvi} />}
+            {metrics.after_ndvi && <NdviBlock label="After — NDVI" ndvi={metrics.after_ndvi} />}
+            {metrics.before_landcover && <LandcoverBlock label="Before — Land Cover" lc={metrics.before_landcover} />}
+            {metrics.after_landcover && <LandcoverBlock label="After — Land Cover" lc={metrics.after_landcover} />}
+            {metrics.spectral_change && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-semibold text-amber-400/80 uppercase tracking-wider flex items-center gap-1">
+                  <BarChart2 className="h-3 w-3" />Spectral Change Area
+                </p>
+                <MetricRow label="Changed Surface" value={metrics.spectral_change.changed_pct} unit="%" highlight />
+                <MetricRow label="Changed Pixels" value={metrics.spectral_change.changed_pixels} />
+                <MetricRow
+                  label="Area"
+                  value={metrics.spectral_change.change_area_km2 !== null ? metrics.spectral_change.change_area_km2 : "N/A (no georef)"}
+                  unit={metrics.spectral_change.change_area_km2 !== null ? "km²" : undefined}
+                  highlight={metrics.spectral_change.change_area_km2 !== null}
+                />
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Grounding ── */}
+        {task === "grounding" && metrics.object_areas && metrics.object_areas.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-[10px] font-semibold text-amber-400/80 uppercase tracking-wider flex items-center gap-1">
+              <Layers className="h-3 w-3" />Detected Object Areas
+            </p>
+            <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+              {metrics.object_areas.map((obj, i) => (
+                <div key={i} className="flex items-center justify-between p-2 rounded bg-[#1a1500] border border-amber-500/15 text-[11px]">
+                  <span className="text-foreground font-medium truncate max-w-[160px]">{obj.label}</span>
+                  <span className="font-mono text-amber-400 ml-2 shrink-0">
+                    {obj.area_km2 !== null
+                      ? `${obj.area_km2.toFixed(4)} km²`
+                      : obj.area_m2 !== null
+                      ? `${obj.area_m2.toFixed(1)} m²`
+                      : "N/A"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Reliability note */}
+        <p className="text-[10px] text-muted-foreground/50 pt-1 border-t border-border/20">
+          These values are computed deterministically from raw pixel data — independent of the model answer above.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 function ImageComparisonViewer({ beforeImage, afterImage, title }: { beforeImage: string; afterImage: string; title?: string }) {
   const [comparison, setComparison] = useState(50);
@@ -778,6 +953,11 @@ export default function Analyze() {
                 )}
               </div>
             </div>
+
+            {/* Deterministic Metrics Panel — shown only when computed_metrics is present */}
+            {result?.computed_metrics && (
+              <ComputedMetricsPanel metrics={result.computed_metrics} />
+            )}
 
             {/* Auditable Execution Trace Card */}
             <div className="rounded-xl border border-border bg-[#0E0E0E] p-6 shadow-xl">
