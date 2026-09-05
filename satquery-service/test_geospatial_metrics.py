@@ -69,39 +69,45 @@ class TestGeospatialMetrics(unittest.TestCase):
         # 1. Returned dictionary keys
         for res in (before_ndvi, after_ndvi):
             self.assertIn("vegetation_pct", res)
+            self.assertIn("vegetation_pct_sparse", res)
+            self.assertIn("vegetation_pct_dense", res)
             self.assertIn("mean_ndvi", res)
             self.assertIn("min_ndvi", res)
             self.assertIn("max_ndvi", res)
             self.assertIn("vegetated_pixel_count", res)
+            self.assertIn("dense_pixel_count", res)
             self.assertIn("total_pixels", res)
             self.assertEqual(res["total_pixels"], 224 * 224)
 
         # 2. Hand-checked expected ranges for before image:
-        # Before image has water/river and cleared regions: vegetation% ~ 88.74%, mean_ndvi ~ 0.624
-        self.assertGreaterEqual(before_ndvi["vegetation_pct"], 85.0)
-        self.assertLessEqual(before_ndvi["vegetation_pct"], 92.0)
-        self.assertAlmostEqual(before_ndvi["vegetation_pct"], 88.74, places=1)
+        # Before image has water/river and cleared regions: sparse veg ~ 88.74%, dense veg ~ 83.66%
+        self.assertGreaterEqual(before_ndvi["vegetation_pct_sparse"], 85.0)
+        self.assertLessEqual(before_ndvi["vegetation_pct_sparse"], 92.0)
+        self.assertAlmostEqual(before_ndvi["vegetation_pct_sparse"], 88.74, places=1)
+        self.assertGreaterEqual(before_ndvi["vegetation_pct_dense"], 80.0)
+        self.assertLessEqual(before_ndvi["vegetation_pct_dense"], 86.0)
+        self.assertAlmostEqual(before_ndvi["vegetation_pct_dense"], 83.66, places=1)
         self.assertGreater(before_ndvi["mean_ndvi"], 0.60)
         self.assertLess(before_ndvi["mean_ndvi"], 0.65)
 
         # 3. Hand-checked expected ranges for after image:
-        # After image has 100% vegetation coverage (>0.2) and higher mean NDVI ~ 0.717
-        self.assertEqual(after_ndvi["vegetation_pct"], 100.0)
+        # After image has 100% sparse coverage (>0.2), but dense canopy (>0.5) is ~82.9%
+        self.assertEqual(after_ndvi["vegetation_pct_sparse"], 100.0)
+        self.assertAlmostEqual(after_ndvi["vegetation_pct_dense"], 82.87, places=1)
         self.assertGreater(after_ndvi["mean_ndvi"], 0.70)
         self.assertLess(after_ndvi["mean_ndvi"], 0.75)
 
         # 4. Verified distinction between the two dates:
-        # The two dates exhibit significant vegetative difference (before has non-vegetated patches)
-        self.assertNotEqual(before_ndvi["vegetation_pct"], after_ndvi["vegetation_pct"])
+        self.assertNotEqual(before_ndvi["vegetation_pct_dense"], after_ndvi["vegetation_pct_dense"])
         self.assertGreater(before_ndvi["total_pixels"] - before_ndvi["vegetated_pixel_count"], 5000)
 
     def test_compute_ndvi_synthetic_deterministic(self):
         """Verify NDVI arithmetic on simple, known synthetic numbers."""
         # Shape: (6, 2, 2)
-        # Pixel 0,0: NIR=3000, Red=1000 -> NDVI = (3000-1000)/(3000+1000) = 2000/4000 = 0.5 (>0.2 -> veg)
-        # Pixel 0,1: NIR=1000, Red=3000 -> NDVI = (1000-3000)/(1000+3000) = -2000/4000 = -0.5 (not veg)
-        # Pixel 1,0: NIR=1200, Red=1000 -> NDVI = 200/2200 = 0.0909 (not veg)
-        # Pixel 1,1: NIR=4000, Red=1000 -> NDVI = 3000/5000 = 0.6 (>0.2 -> veg)
+        # Pixel 0,0: NIR=3000, Red=1000 -> NDVI = 2000/4000 = 0.5 (sparse: True (>0.2), dense: False (<=0.5))
+        # Pixel 0,1: NIR=1000, Red=3000 -> NDVI = -0.5 (sparse: False, dense: False)
+        # Pixel 1,0: NIR=1200, Red=1000 -> NDVI = 200/2200 = 0.0909 (sparse: False, dense: False)
+        # Pixel 1,1: NIR=4000, Red=1000 -> NDVI = 3000/5000 = 0.6 (sparse: True (>0.2), dense: True (>0.5))
         synthetic = np.zeros((6, 2, 2), dtype=np.float32)
         synthetic[2] = [[1000, 3000], [1000, 1000]]  # Red
         synthetic[3] = [[3000, 1000], [1200, 4000]]  # NIR
@@ -109,7 +115,9 @@ class TestGeospatialMetrics(unittest.TestCase):
         res = compute_ndvi_coverage(synthetic, red_band_idx=2, nir_band_idx=3)
         self.assertEqual(res["total_pixels"], 4)
         self.assertEqual(res["vegetated_pixel_count"], 2)
-        self.assertEqual(res["vegetation_pct"], 50.0)
+        self.assertEqual(res["dense_pixel_count"], 1)
+        self.assertEqual(res["vegetation_pct_sparse"], 50.0)
+        self.assertEqual(res["vegetation_pct_dense"], 25.0)
         expected_mean = (0.5 + (-0.5) + (200.0 / 2200.0) + 0.6) / 4.0
         self.assertAlmostEqual(res["mean_ndvi"], round(expected_mean, 4), places=3)
 

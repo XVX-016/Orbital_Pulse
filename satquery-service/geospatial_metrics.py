@@ -22,8 +22,10 @@ DEFAULT_SWIR1_BAND_IDX = 4
 DEFAULT_SWIR2_BAND_IDX = 5
 DEFAULT_BLUE_BAND_IDX = 0
 
-# NDVI vegetation classification threshold
+# NDVI vegetation classification thresholds
 DEFAULT_NDVI_VEG_THRESHOLD = 0.2
+DEFAULT_NDVI_SPARSE_THRESHOLD = 0.2
+DEFAULT_NDVI_DENSE_THRESHOLD = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -91,24 +93,32 @@ def compute_ndvi_coverage(
     red_band_idx: int = DEFAULT_RED_BAND_IDX,
     nir_band_idx: int = DEFAULT_NIR_BAND_IDX,
     veg_threshold: float = DEFAULT_NDVI_VEG_THRESHOLD,
+    dense_threshold: float = DEFAULT_NDVI_DENSE_THRESHOLD,
 ) -> Dict[str, Any]:
     """
     Computes standard NDVI ((NIR - Red) / (NIR + Red)) per-pixel from multi-band satellite array.
+
+    Includes a two-tier threshold to distinguish 'any vegetation/sparse' (>0.2)
+    from 'dense/intact canopy' (>0.5).
 
     Args:
         image_bands: Array of shape (C, H, W) or (H, W, C).
         red_band_idx: Channel index for Red band (default 2 in HLS).
         nir_band_idx: Channel index for NIR band (default 3 in HLS).
-        veg_threshold: Threshold above which a pixel is considered "vegetated" (default >0.2).
+        veg_threshold: Threshold above which a pixel is considered 'sparse/any vegetation' (default >0.2).
+        dense_threshold: Threshold above which a pixel is considered 'dense/intact canopy' (default >0.5).
 
     Returns:
         {
-            "vegetation_pct": float,      # Percentage (0-100) of pixels with NDVI > veg_threshold
-            "mean_ndvi": float,           # Mean NDVI across all valid pixels (-1.0 to 1.0)
-            "min_ndvi": float,            # Minimum observed NDVI
-            "max_ndvi": float,            # Maximum observed NDVI
-            "vegetated_pixel_count": int, # Number of pixels exceeding threshold
-            "total_pixels": int,          # Total valid pixels evaluated
+            "vegetation_pct": float,            # Backward compatible: equals vegetation_pct_sparse
+            "vegetation_pct_sparse": float,     # Percentage (0-100) of pixels with NDVI > veg_threshold (>0.2)
+            "vegetation_pct_dense": float,      # Percentage (0-100) of pixels with NDVI > dense_threshold (>0.5)
+            "mean_ndvi": float,                 # Mean NDVI across all valid pixels (-1.0 to 1.0)
+            "min_ndvi": float,                  # Minimum observed NDVI
+            "max_ndvi": float,                  # Maximum observed NDVI
+            "vegetated_pixel_count": int,       # Number of pixels exceeding sparse threshold
+            "dense_pixel_count": int,           # Number of pixels exceeding dense threshold
+            "total_pixels": int,                # Total valid pixels evaluated
         }
     """
     arr = np.asarray(image_bands, dtype=np.float32)
@@ -116,20 +126,14 @@ def compute_ndvi_coverage(
         raise ValueError("compute_ndvi_coverage requires multi-band array, got 2D array")
 
     # Handle shape (C, H, W) vs (H, W, C)
-    # If the first dimension is <= 16 and either larger than or smaller than spatial dims,
-    # or if the last dimension is clearly spatial/smaller, check indices.
     if arr.ndim == 3 and (arr.shape[0] <= 16 and (arr.shape[0] < arr.shape[1] or arr.shape[-1] < max(red_band_idx, nir_band_idx) + 1)):
         # Format is (C, H, W)
         red = arr[red_band_idx]
         nir = arr[nir_band_idx]
     elif arr.ndim == 3 and arr.shape[0] <= 16 and arr.shape[-1] <= 16:
         # Ambiguous small array (e.g. 6, 2, 2)
-        if arr.shape[-1] < max(red_band_idx, nir_band_idx) + 1:
-            red = arr[red_band_idx]
-            nir = arr[nir_band_idx]
-        else:
-            red = arr[red_band_idx]
-            nir = arr[nir_band_idx]
+        red = arr[red_band_idx]
+        nir = arr[nir_band_idx]
     else:
         # Format is (H, W, C)
         red = arr[:, :, red_band_idx]
@@ -147,27 +151,36 @@ def compute_ndvi_coverage(
     if total_pixels == 0:
         return {
             "vegetation_pct": 0.0,
+            "vegetation_pct_sparse": 0.0,
+            "vegetation_pct_dense": 0.0,
             "mean_ndvi": 0.0,
             "min_ndvi": 0.0,
             "max_ndvi": 0.0,
             "vegetated_pixel_count": 0,
+            "dense_pixel_count": 0,
             "total_pixels": 0,
         }
 
-    vegetated_mask = ndvi > veg_threshold
-    vegetated_count = int(np.sum(vegetated_mask))
+    sparse_mask = ndvi > veg_threshold
+    dense_mask = ndvi > dense_threshold
+    sparse_count = int(np.sum(sparse_mask))
+    dense_count = int(np.sum(dense_mask))
 
-    veg_pct = round(float((vegetated_count / total_pixels) * 100.0), 2)
+    sparse_pct = round(float((sparse_count / total_pixels) * 100.0), 2)
+    dense_pct = round(float((dense_count / total_pixels) * 100.0), 2)
     mean_ndvi = round(float(np.mean(ndvi)), 4)
     min_ndvi = round(float(np.min(ndvi)), 4)
     max_ndvi = round(float(np.max(ndvi)), 4)
 
     return {
-        "vegetation_pct": veg_pct,
+        "vegetation_pct": sparse_pct,
+        "vegetation_pct_sparse": sparse_pct,
+        "vegetation_pct_dense": dense_pct,
         "mean_ndvi": mean_ndvi,
         "min_ndvi": min_ndvi,
         "max_ndvi": max_ndvi,
-        "vegetated_pixel_count": vegetated_count,
+        "vegetated_pixel_count": sparse_count,
+        "dense_pixel_count": dense_count,
         "total_pixels": total_pixels,
     }
 

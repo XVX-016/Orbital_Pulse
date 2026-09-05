@@ -83,8 +83,11 @@ interface ExecutionTrace {
 
 interface NdviResult {
   vegetation_pct: number;
+  vegetation_pct_sparse?: number;
+  vegetation_pct_dense?: number;
   mean_ndvi: number;
-  valid_pixels: number;
+  valid_pixels?: number;
+  total_pixels?: number;
 }
 
 interface LandcoverResult {
@@ -156,14 +159,20 @@ function MetricRow({ label, value, unit, highlight }: { label: string; value: st
 }
 
 function NdviBlock({ label, ndvi }: { label: string; ndvi: NdviResult }) {
+  const sparseVal = ndvi.vegetation_pct_sparse ?? ndvi.vegetation_pct;
+  const denseVal = ndvi.vegetation_pct_dense;
+
   return (
     <div className="space-y-1">
       <p className="text-[10px] font-semibold text-amber-400/80 uppercase tracking-wider flex items-center gap-1">
         <Leaf className="h-3 w-3" />{label}
       </p>
-      <MetricRow label="Vegetation Cover" value={ndvi.vegetation_pct} unit="%" highlight />
+      <MetricRow label="Sparse Veg. (>0.2)" value={sparseVal} unit="%" />
+      {denseVal !== undefined && (
+        <MetricRow label="Dense Canopy (>0.5)" value={denseVal} unit="%" highlight />
+      )}
       <MetricRow label="Mean NDVI" value={ndvi.mean_ndvi} />
-      <MetricRow label="Valid Pixels" value={ndvi.valid_pixels} />
+      <MetricRow label="Valid Pixels" value={ndvi.total_pixels ?? ndvi.valid_pixels} />
     </div>
   );
 }
