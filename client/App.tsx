@@ -11,6 +11,7 @@ import Index from "./pages/Index";
 import Analyze from "./pages/Analyze";
 import About from "./pages/About";
 import Globe from "./pages/Globe";
+import MapView from "./pages/MapView";
 import NotFound from "./pages/NotFound";
 import { GlobeProvider } from "@/lib/globe-context";
 
@@ -29,6 +30,7 @@ const App = () => (
               <Route path="/globe" element={<Globe />} />
               <Route path="/analyze" element={<Analyze />} />
               <Route path="/about" element={<About />} />
+              <Route path="/map" element={<MapView />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
