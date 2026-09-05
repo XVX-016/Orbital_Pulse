@@ -94,6 +94,9 @@ def _build_geometry(execution_trace: Dict[str, Any], computed_metrics: Optional[
     3. If neither → None (the column is left NULL).
     """
     params = execution_trace.get("parameters", {})
+    if params.get("scene_geometry_wkt"):
+        return params["scene_geometry_wkt"]
+
     tif_path = params.get("before_tif_path") or params.get("tif_path")
 
     # Confirm the VLM side found a real geotransform
@@ -225,3 +228,203 @@ def get_recent_analyses(limit: int = 50) -> List[Dict[str, Any]]:
             d["created_at"] = d["created_at"].isoformat()
         result.append(d)
     return result
+
+
+def init_db() -> None:
+    """Ensure required tables and extensions exist in PostGIS."""
+    create_tables_sql = """
+    CREATE EXTENSION IF NOT EXISTS postgis;
+
+    CREATE TABLE IF NOT EXISTS analyses (
+        id               BIGSERIAL PRIMARY KEY,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        query_text       TEXT        NOT NULL,
+        task_type        TEXT        NOT NULL,
+        modality         TEXT,
+        temporal         TEXT,
+        vlm_answer       TEXT,
+        computed_metrics JSONB,
+        geom             GEOMETRY(Geometry, 4326)
+    );
+
+    CREATE INDEX IF NOT EXISTS analyses_created_at_idx ON analyses (created_at DESC);
+    CREATE INDEX IF NOT EXISTS analyses_geom_idx       ON analyses USING GIST (geom);
+
+    CREATE TABLE IF NOT EXISTS catalogued_scenes (
+        id               BIGSERIAL PRIMARY KEY,
+        scene_id         TEXT UNIQUE NOT NULL,
+        collection       TEXT NOT NULL,
+        datetime         TIMESTAMPTZ NOT NULL,
+        cloud_cover      DOUBLE PRECISION,
+        thumbnail_url    TEXT,
+        stac_href        TEXT,
+        geom             GEOMETRY(Polygon, 4326),
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS catalogued_scenes_datetime_idx ON catalogued_scenes (datetime DESC);
+    CREATE INDEX IF NOT EXISTS catalogued_scenes_geom_idx     ON catalogued_scenes USING GIST (geom);
+    CREATE INDEX IF NOT EXISTS catalogued_scenes_coll_idx     ON catalogued_scenes (collection);
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(create_tables_sql)
+            conn.commit()
+        logger.info("DB: ensured schema and tables (analyses, catalogued_scenes)")
+    except Exception as e:
+        logger.warning(f"DB init_db failed: {e}")
+
+
+def insert_catalogued_scene(
+    scene_id: str,
+    collection: str,
+    dt_str: str,
+    cloud_cover: Optional[float],
+    thumbnail_url: Optional[str],
+    stac_href: Optional[str],
+    bbox: List[float],
+) -> bool:
+    """
+    Insert a scene into catalogued_scenes if not already present (ON CONFLICT DO NOTHING).
+    bbox: [min_lon, min_lat, max_lon, max_lat]
+    Returns True if a new row was inserted, False if duplicate or failed.
+    """
+    if len(bbox) != 4:
+        return False
+
+    min_lon, min_lat, max_lon, max_lat = bbox
+    polygon_wkt = (
+        f"POLYGON(({min_lon} {min_lat}, {max_lon} {min_lat}, "
+        f"{max_lon} {max_lat}, {min_lon} {max_lat}, {min_lon} {min_lat}))"
+    )
+
+    sql = """
+        INSERT INTO catalogued_scenes
+            (scene_id, collection, datetime, cloud_cover, thumbnail_url, stac_href, geom)
+        VALUES (%s, %s, %s, %s, %s, %s, ST_SetSRID(ST_GeomFromText(%s), 4326))
+        ON CONFLICT (scene_id) DO NOTHING
+        RETURNING id;
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql,
+                    (
+                        scene_id,
+                        collection,
+                        dt_str,
+                        cloud_cover,
+                        thumbnail_url,
+                        stac_href,
+                        polygon_wkt,
+                    ),
+                )
+                row = cur.fetchone()
+            conn.commit()
+            return row is not None
+    except Exception as e:
+        logger.warning(f"insert_catalogued_scene failed for {scene_id}: {e}")
+        return False
+
+
+def get_recent_catalog_scenes(limit: int = 100) -> List[Dict[str, Any]]:
+    """Return recent catalogued scenes as a list with GeoJSON geometry."""
+    sql = """
+        SELECT
+            id,
+            scene_id,
+            collection,
+            datetime,
+            cloud_cover,
+            thumbnail_url,
+            stac_href,
+            created_at,
+            CASE
+                WHEN geom IS NOT NULL THEN ST_AsGeoJSON(geom)::json
+                ELSE NULL
+            END AS geometry
+        FROM catalogued_scenes
+        ORDER BY datetime DESC
+        LIMIT %s
+    """
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (limit,))
+            rows = cur.fetchall()
+
+    result = []
+    for row in rows:
+        d = dict(row)
+        if d.get("datetime"):
+            d["datetime"] = d["datetime"].isoformat()
+        if d.get("created_at"):
+            d["created_at"] = d["created_at"].isoformat()
+        result.append(d)
+    return result
+
+
+def find_scene_by_location(
+    lon: float,
+    lat: float,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    collection: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Find the most recent catalogued scene covering (lon, lat), optionally filtered
+    by date range and satellite collection.
+    """
+    conditions = ["ST_Intersects(geom, ST_SetSRID(ST_MakePoint(%s, %s), 4326))"]
+    params: List[Any] = [lon, lat]
+
+    if collection:
+        conditions.append("collection = %s")
+        params.append(collection)
+
+    if start_date:
+        conditions.append("datetime >= %s")
+        params.append(start_date)
+
+    if end_date:
+        conditions.append("datetime <= %s")
+        params.append(end_date)
+
+    where_clause = " AND ".join(conditions)
+    sql = f"""
+        SELECT
+            id,
+            scene_id,
+            collection,
+            datetime,
+            cloud_cover,
+            thumbnail_url,
+            stac_href,
+            created_at,
+            CASE
+                WHEN geom IS NOT NULL THEN ST_AsGeoJSON(geom)::json
+                ELSE NULL
+            END AS geometry
+        FROM catalogued_scenes
+        WHERE {where_clause}
+        ORDER BY datetime DESC
+        LIMIT 1;
+    """
+
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, tuple(params))
+            row = cur.fetchone()
+
+    if not row:
+        return None
+
+    d = dict(row)
+    if d.get("datetime"):
+        d["datetime"] = d["datetime"].isoformat()
+    if d.get("created_at"):
+        d["created_at"] = d["created_at"].isoformat()
+    return d
+
+

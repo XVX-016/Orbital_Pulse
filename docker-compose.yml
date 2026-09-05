@@ -28,8 +28,12 @@ services:
     volumes:
       - huggingface-cache:/app/.cache/huggingface
       - ./satquery-service/raw_data:/app/raw_data:ro
+      - ./satquery-service:/app
       - ai-data:/app/data
       - ai-previews:/app/public/images
+    environment:
+      - SATQUERY_DATABASE_URL=postgresql://orbital_user:orbital_password@postgis:5432/orbital_db
+      - CATALOG_POLL_INTERVAL_MINUTES=5
     depends_on:
       postgis:
         condition: service_healthy

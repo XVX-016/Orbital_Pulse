@@ -42,6 +42,17 @@ class AnalyzeRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup_event():
+    # Ensure database schema is ready
+    analysis_db.init_db()
+
+    # Launch STAC metadata-only catalog background ingestion daemon
+    try:
+        from stac_catalog import stac_catalog_daemon
+        asyncio.create_task(stac_catalog_daemon())
+        logger.info("STAC catalog background daemon scheduled.")
+    except Exception as stac_err:
+        logger.warning(f"Could not start STAC catalog daemon: {stac_err}")
+
     # Load 4-bit GeoChat-7B model engine once at startup
     try:
         from geochat_engine import init_geochat_model
@@ -92,12 +103,22 @@ async def analyze_query(request: Request):
         scenario = body.get("scenario")
         modality = body.get("modality", "optical")
         temporal = body.get("temporal", "single")
+        lat = body.get("lat")
+        lon = body.get("lon")
+        start_date = body.get("start_date")
+        end_date = body.get("end_date")
+        collection = body.get("collection")
     else:
         form = await request.form()
         user_query = form.get("query", "")
         scenario = form.get("scenario")
         modality = form.get("modality", "optical")
         temporal = form.get("temporal", "single")
+        lat = form.get("lat")
+        lon = form.get("lon")
+        start_date = form.get("start_date")
+        end_date = form.get("end_date")
+        collection = form.get("collection")
         
         # Collect file uploads if present
         for key in form:
@@ -119,6 +140,48 @@ async def analyze_query(request: Request):
 
     if not user_query:
         raise HTTPException(status_code=400, detail="Query string is required.")
+
+    custom_params: dict = {}
+
+    # Query by location: lookup matching catalogued scene and lazily fetch pixels
+    matched_scene = None
+    if lat is not None and lon is not None and not images_payload and not scenario:
+        try:
+            f_lat = float(lat)
+            f_lon = float(lon)
+            matched_scene = analysis_db.find_scene_by_location(
+                lon=f_lon,
+                lat=f_lat,
+                start_date=start_date,
+                end_date=end_date,
+                collection=collection,
+            )
+            if matched_scene:
+                logger.info(f"Query by location: matched scene {matched_scene['scene_id']} ({matched_scene['collection']})")
+                from stac_catalog import fetch_scene_image_bytes
+                raw_bytes = fetch_scene_image_bytes(matched_scene)
+                if raw_bytes:
+                    scene_img = load_image_robust(raw_bytes)
+                    if scene_img:
+                        images_payload.append(scene_img)
+                        buf = io.BytesIO()
+                        scene_img.save(buf, format="JPEG", quality=85)
+                        b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
+                        preview_base64_list.append(f"data:image/jpeg;base64,{b64_str}")
+
+                # Pass matched scene geometry and metadata into trace params
+                geom = matched_scene.get("geometry")
+                if geom and geom.get("type") == "Polygon":
+                    coords = geom.get("coordinates", [[]])[0]
+                    if len(coords) >= 4:
+                        pts = ", ".join(f"{c[0]} {c[1]}" for c in coords)
+                        custom_params["scene_geometry_wkt"] = f"POLYGON(({pts}))"
+                custom_params["catalog_scene_id"] = matched_scene.get("scene_id")
+                custom_params["catalog_collection"] = matched_scene.get("collection")
+            else:
+                logger.warning(f"Query by location: no catalogued scene found covering ({f_lon}, {f_lat})")
+        except Exception as loc_err:
+            logger.warning(f"Failed to lookup or fetch scene by location: {loc_err}")
 
     # If scenario specified, load bi-temporal pair for change detection / change-VQA
     if scenario:
@@ -144,7 +207,6 @@ async def analyze_query(request: Request):
                     preview_base64_list = scenario_previews
 
     # Inject TIF paths into params so controller / metrics / db can reference them
-    custom_params: dict = {}
     if scenario:
         before_path = f"data/{scenario}/before.tif"
         after_path = f"data/{scenario}/after.tif"
@@ -245,3 +307,39 @@ async def list_analyses(limit: int = 50):
         "count": len(features),
         "features": features,
     }
+
+
+@app.get("/api/catalog")
+async def list_catalog(limit: int = 100):
+    """Return recent catalogued scenes as GeoJSON FeatureCollection.
+
+    Query params:
+      limit (int, default 100) — max number of scenes, capped at 300.
+    """
+    limit = min(max(1, limit), 300)
+    try:
+        loop = asyncio.get_event_loop()
+        rows = await loop.run_in_executor(
+            _db_executor,
+            analysis_db.get_recent_catalog_scenes,
+            limit,
+        )
+    except Exception as e:
+        logger.error(f"GET /api/catalog DB error: {e}")
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {e}")
+
+    features = []
+    for row in rows:
+        geom = row.pop("geometry", None)
+        features.append({
+            "type": "Feature",
+            "geometry": geom,
+            "properties": row,
+        })
+
+    return {
+        "type": "FeatureCollection",
+        "count": len(features),
+        "features": features,
+    }
+

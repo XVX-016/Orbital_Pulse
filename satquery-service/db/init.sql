@@ -23,3 +23,21 @@ CREATE INDEX IF NOT EXISTS analyses_created_at_idx ON analyses (created_at DESC)
 
 -- Spatial index for future map queries (bbox intersects, nearby, etc.)
 CREATE INDEX IF NOT EXISTS analyses_geom_idx       ON analyses USING GIST (geom);
+
+-- Lightweight STAC catalogued scenes metadata table
+CREATE TABLE IF NOT EXISTS catalogued_scenes (
+    id               BIGSERIAL PRIMARY KEY,
+    scene_id         TEXT UNIQUE NOT NULL,
+    collection       TEXT NOT NULL,
+    datetime         TIMESTAMPTZ NOT NULL,
+    cloud_cover      DOUBLE PRECISION,
+    thumbnail_url    TEXT,
+    stac_href        TEXT,
+    geom             GEOMETRY(Polygon, 4326),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS catalogued_scenes_datetime_idx ON catalogued_scenes (datetime DESC);
+CREATE INDEX IF NOT EXISTS catalogued_scenes_geom_idx     ON catalogued_scenes USING GIST (geom);
+CREATE INDEX IF NOT EXISTS catalogued_scenes_coll_idx     ON catalogued_scenes (collection);
+

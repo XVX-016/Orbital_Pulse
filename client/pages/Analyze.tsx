@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft, FlaskConical, Leaf, Map, BarChart2, Layers } from "lucide-react";
+import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft, FlaskConical, Leaf, Map, BarChart2, Layers, MapPin, Calendar, Satellite, Globe2 } from "lucide-react";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -10,6 +12,8 @@ type Modality = "optical" | "sar" | "both";
 type Temporal = "single" | "bi-temporal";
 type TaskHint = "auto" | "vqa" | "grounding" | "change" | "sar_fusion";
 type ScenarioId = "deforestation" | "disaster";
+type InputMode = "upload" | "location";
+type SatCollection = "sentinel-2-l2a" | "sentinel-1-grd" | "landsat-c2-l2";
 
 interface Scenario {
   id: ScenarioId;
@@ -341,6 +345,65 @@ function ImageComparisonViewer({ beforeImage, afterImage, title }: { beforeImage
   );
 }
 
+// ─── Mini Leaflet map for coordinate picking ──────────────────────────────────
+function LocationPickerMap({ lat, lon, onPick }: { lat: number | null; lon: number | null; onPick: (lat: number, lon: number) => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+    const map = L.map(containerRef.current, {
+      center: [lat ?? 20, lon ?? 0],
+      zoom: lat !== null ? 6 : 2,
+      zoomControl: true,
+      attributionControl: false,
+    });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      maxZoom: 19,
+    }).addTo(map);
+    mapRef.current = map;
+
+    if (lat !== null && lon !== null) {
+      markerRef.current = L.marker([lat, lon]).addTo(map);
+    }
+
+    map.on("click", (e: L.LeafletMouseEvent) => {
+      const { lat: clickLat, lng: clickLon } = e.latlng;
+      if (markerRef.current) {
+        markerRef.current.setLatLng([clickLat, clickLon]);
+      } else {
+        markerRef.current = L.marker([clickLat, clickLon]).addTo(map);
+      }
+      onPick(Math.round(clickLat * 10000) / 10000, Math.round(clickLon * 10000) / 10000);
+    });
+
+    return () => { map.remove(); mapRef.current = null; markerRef.current = null; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync marker when lat/lon inputs change externally
+  useEffect(() => {
+    if (!mapRef.current || lat === null || lon === null) return;
+    if (markerRef.current) {
+      markerRef.current.setLatLng([lat, lon]);
+    } else {
+      markerRef.current = L.marker([lat, lon]).addTo(mapRef.current);
+    }
+    mapRef.current.setView([lat, lon], Math.max(mapRef.current.getZoom(), 6));
+  }, [lat, lon]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="w-full rounded-lg overflow-hidden border border-border"
+      style={{ height: 260, cursor: "crosshair" }}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function Analyze() {
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get("query") || "Please detect and ground all major infrastructure, buildings, or structures in this aerial view.";
@@ -352,6 +415,37 @@ export default function Analyze() {
   const [temporal, setTemporal] = useState<Temporal>("single");
   const [taskHint, setTaskHint] = useState<TaskHint>("auto");
   const [scenarioId, setScenarioId] = useState<ScenarioId | null>(null);
+
+  // Input mode: upload or query-by-location
+  const [inputMode, setInputMode] = useState<InputMode>("upload");
+
+  // Location query state
+  const [locationLat, setLocationLat] = useState<number | null>(null);
+  const [locationLon, setLocationLon] = useState<number | null>(null);
+  const [locationLatStr, setLocationLatStr] = useState("");
+  const [locationLonStr, setLocationLonStr] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [satCollection, setSatCollection] = useState<SatCollection>("sentinel-2-l2a");
+
+  const handleLocationPick = useCallback((lat: number, lon: number) => {
+    setLocationLat(lat);
+    setLocationLon(lon);
+    setLocationLatStr(String(lat));
+    setLocationLonStr(String(lon));
+  }, []);
+
+  const syncLatInput = (val: string) => {
+    setLocationLatStr(val);
+    const n = parseFloat(val);
+    if (!isNaN(n) && n >= -90 && n <= 90) setLocationLat(n);
+  };
+
+  const syncLonInput = (val: string) => {
+    setLocationLonStr(val);
+    const n = parseFloat(val);
+    if (!isNaN(n) && n >= -180 && n <= 180) setLocationLon(n);
+  };
 
   // File upload state for user-provided satellite images
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
@@ -400,6 +494,15 @@ export default function Analyze() {
 
   const handleRunAnalysis = async () => {
     if (!query.trim()) return;
+
+    // Location mode validation
+    if (inputMode === "location") {
+      if (locationLat === null || locationLon === null) {
+        setError("Please provide a valid latitude and longitude, or click on the map to pick a location.");
+        return;
+      }
+    }
+
     setIsRunning(true);
     setError(null);
     setResult(null);
@@ -412,7 +515,23 @@ export default function Analyze() {
 
       let response: Response;
 
-      if (uploadedFiles.length > 0) {
+      if (inputMode === "location") {
+        // Query by location: backend looks up catalogued scene and lazily fetches pixels
+        response = await fetch(`${AI_SERVICE_URL}/api/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: finalQuery,
+            modality,
+            temporal,
+            lat: locationLat,
+            lon: locationLon,
+            start_date: startDate || undefined,
+            end_date: endDate || undefined,
+            collection: satCollection,
+          }),
+        });
+      } else if (uploadedFiles.length > 0) {
         // Send multipart/form-data for user-uploaded satellite files
         const formData = new FormData();
         formData.append("query", finalQuery);
@@ -430,7 +549,7 @@ export default function Analyze() {
           body: formData,
         });
       } else {
-        // Standard JSON request
+        // Standard JSON request (scenario-based)
         response = await fetch(`${AI_SERVICE_URL}/api/analyze`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -511,8 +630,34 @@ export default function Analyze() {
           ))}
         </div>
 
-        {/* Query Input Box, Selectors & File Upload Zone */}
+        {/* Query Input Box, Selectors & Input Mode Panel */}
         <div className="rounded-xl border border-border bg-card/80 p-6 shadow-xl backdrop-blur-md mb-8">
+          {/* Input Mode Toggle */}
+          <div className="flex items-center gap-1 p-1 rounded-lg bg-[#121212] border border-border mb-5 w-fit">
+            <button
+              type="button"
+              onClick={() => { setInputMode("upload"); setResult(null); setError(null); }}
+              className={cn(
+                "flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-medium transition-all",
+                inputMode === "upload" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Upload Image
+            </button>
+            <button
+              type="button"
+              onClick={() => { setInputMode("location"); setResult(null); setError(null); }}
+              className={cn(
+                "flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-medium transition-all",
+                inputMode === "location" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Globe2 className="h-3.5 w-3.5" />
+              Query by Location
+            </button>
+          </div>
+
           <div className="space-y-4">
             <div>
               <label htmlFor="query-input" className="label-micro mb-2 block text-muted-foreground">
@@ -646,24 +791,28 @@ export default function Analyze() {
 
               {/* Upload Button Trigger & Submit CTA */}
               <div className="flex items-center gap-3">
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleFileChange}
-                  multiple
-                  accept=".tif,.tiff,.png,.jpg,.jpeg"
-                  className="hidden"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="lg"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-border bg-[#121212] hover:border-primary"
-                >
-                  <Upload className="mr-2 h-4 w-4" />
-                  Upload GeoTIFF / Image
-                </Button>
+                {inputMode === "upload" && (
+                  <>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      multiple
+                      accept=".tif,.tiff,.png,.jpg,.jpeg"
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="lg"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="border-border bg-[#121212] hover:border-primary"
+                    >
+                      <Upload className="mr-2 h-4 w-4" />
+                      Upload GeoTIFF / Image
+                    </Button>
+                  </>
+                )}
 
                 <Button
                   size="lg"
@@ -684,8 +833,100 @@ export default function Analyze() {
               </div>
             </div>
 
+            {/* Location query inputs */}
+            {inputMode === "location" && (
+              <div className="pt-4 border-t border-border/40 space-y-4">
+                <p className="text-xs text-muted-foreground flex items-center gap-2">
+                  <Globe2 className="h-3.5 w-3.5 text-primary" />
+                  Click the map to pick a point, or enter coordinates manually. The backend will find the best matching catalogued satellite scene and run inference on it.
+                </p>
+
+                {/* Mini map */}
+                <LocationPickerMap lat={locationLat} lon={locationLon} onPick={handleLocationPick} />
+
+                {/* Coordinate inputs */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground">Latitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="-90"
+                      max="90"
+                      placeholder="e.g. -10.5432"
+                      value={locationLatStr}
+                      onChange={(e) => syncLatInput(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground">Longitude</label>
+                    <input
+                      type="number"
+                      step="any"
+                      min="-180"
+                      max="180"
+                      placeholder="e.g. -62.3141"
+                      value={locationLonStr}
+                      onChange={(e) => syncLonInput(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Date range + collection */}
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground flex items-center gap-1">
+                      <Calendar className="h-3 w-3" /> Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground flex items-center gap-1">
+                      <Calendar className="h-3 w-3" /> End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground flex items-center gap-1">
+                      <Satellite className="h-3 w-3" /> Collection
+                    </label>
+                    <select
+                      value={satCollection}
+                      onChange={(e) => setSatCollection(e.target.value as SatCollection)}
+                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="sentinel-2-l2a">Sentinel-2 L2A</option>
+                      <option value="sentinel-1-grd">Sentinel-1 GRD (SAR)</option>
+                      <option value="landsat-c2-l2">Landsat C2 L2</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Live coord badge */}
+                {locationLat !== null && locationLon !== null && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/25 text-primary text-xs font-mono w-fit">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {locationLat.toFixed(4)}°, {locationLon.toFixed(4)}°
+                    <span className="text-muted-foreground ml-2">· {satCollection}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Custom Uploaded Files Bar */}
-            {uploadedFiles.length > 0 && (
+            {inputMode === "upload" && uploadedFiles.length > 0 && (
               <div className="pt-3 border-t border-border/40 flex flex-wrap items-center gap-3">
                 <span className="label-micro text-muted-foreground">Uploaded Files ({uploadedFiles.length}):</span>
                 {uploadedFiles.map((file, idx) => (
@@ -820,8 +1061,25 @@ export default function Analyze() {
                   })}
                 </div>
               </div>
+            ) : inputMode === "location" ? (
+              /* Location mode empty state: show placeholder until result arrives */
+              <div className="relative min-h-[440px] rounded-xl border border-border/50 bg-[#0a0c0f] overflow-hidden flex flex-col justify-center items-center gap-5 shadow-xl p-8">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full border border-primary/20 bg-primary/5 text-primary/50">
+                  <Globe2 className="h-8 w-8" />
+                </div>
+                <div className="text-center space-y-1.5 max-w-xs">
+                  <p className="text-sm font-semibold text-foreground">
+                    {locationLat !== null ? "Location selected — ready to analyze" : "Select a location to begin"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {locationLat !== null
+                      ? `Querying ${satCollection} scenes near ${locationLat.toFixed(4)}°, ${locationLon!.toFixed(4)}°. A preview will appear here after running the analysis.`
+                      : "Click on the map in the panel above, or enter coordinates manually to pick an area of interest."}
+                  </p>
+                </div>
+              </div>
             ) : (
-              /* Empty-state dropzone — single visual panel for all modes */
+              /* Upload mode empty-state dropzone */
               <div
                 className="relative min-h-[440px] rounded-xl border-2 border-dashed border-border bg-[#0d0d0d] overflow-hidden flex flex-col justify-center items-center gap-4 p-8 shadow-xl cursor-pointer group hover:border-primary/50 transition-colors duration-200"
                 onClick={() => fileInputRef.current?.click()}
