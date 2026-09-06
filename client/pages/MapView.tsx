@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import React, { Component, ErrorInfo, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -15,6 +15,10 @@ import {
   Eye,
   EyeOff,
   CalendarDays,
+  RefreshCw,
+  ChevronDown,
+  ChevronUp,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -66,21 +70,81 @@ const analysisPolygonIcon = L.divIcon({
   popupAnchor: [0, -10],
 });
 
-// Distinct STAC catalog marker: solid crisp emerald marker
-const catalogHollowIcon = L.divIcon({
-  html: `<div style="
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: #0d9488;
-    border: 2px solid #ffffff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.6);
-  "></div>`,
-  className: "",
-  iconSize: [12, 12],
-  iconAnchor: [6, 6],
-  popupAnchor: [0, -9],
-});
+// Dynamic STAC catalog marker with per-collection color coding
+function getCatalogMarkerIcon(color: string): L.DivIcon {
+  return L.divIcon({
+    html: `<div style="
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: ${color};
+      border: 2px solid #ffffff;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.6);
+    "></div>`,
+    className: "",
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+    popupAnchor: [0, -9],
+  });
+}
+
+// STAC collection keys and metadata
+export type STACCollectionKey = "sentinel-2" | "sentinel-1" | "landsat";
+
+export function getSTACCollectionKey(collectionName?: string): STACCollectionKey {
+  const coll = (collectionName || "").toLowerCase();
+  if (coll.includes("sentinel-1")) return "sentinel-1";
+  if (coll.includes("landsat")) return "landsat";
+  return "sentinel-2";
+}
+
+export interface CollectionConfig {
+  key: STACCollectionKey;
+  label: string;
+  subLabel: string;
+  stroke: string;
+  fill: string;
+  textColor: string;
+  badgeBg: string;
+  badgeBorder: string;
+  swatchClass: string;
+}
+
+export const STAC_COLLECTIONS: CollectionConfig[] = [
+  {
+    key: "sentinel-2",
+    label: "Sentinel-2",
+    subLabel: "Optical (L2A)",
+    stroke: "#0d9488",
+    fill: "#0f766e",
+    textColor: "text-teal-400",
+    badgeBg: "bg-teal-950/70",
+    badgeBorder: "border-teal-800",
+    swatchClass: "bg-teal-500",
+  },
+  {
+    key: "sentinel-1",
+    label: "Sentinel-1",
+    subLabel: "SAR (GRD)",
+    stroke: "#7e22ce",
+    fill: "#6b21a8",
+    textColor: "text-purple-400",
+    badgeBg: "bg-purple-950/70",
+    badgeBorder: "border-purple-800",
+    swatchClass: "bg-purple-500",
+  },
+  {
+    key: "landsat",
+    label: "Landsat",
+    subLabel: "Multispectral (C2)",
+    stroke: "#b45309",
+    fill: "#92400e",
+    textColor: "text-amber-400",
+    badgeBg: "bg-amber-950/70",
+    badgeBorder: "border-amber-800",
+    swatchClass: "bg-amber-500",
+  },
+];
 
 const AI_SERVICE_URL = import.meta.env.VITE_AI_SERVICE_URL || "http://localhost:8082";
 
@@ -562,13 +626,68 @@ function createCatalogPopupHtml(feature: CatalogGeoJSONFeature): string {
   }
 }
 
-function StatCard({ icon: Icon, label, value, colorClass }: { icon: any; label: string; value: string | number; colorClass?: string }) {
+// ─── Subtle count-up hook for numbers ─────────────────────────────────────────
+function useCountUp(target: number, duration: number = 750): number {
+  const [current, setCurrent] = useState(0);
+
+  useEffect(() => {
+    const startVal = current;
+    const endVal = target;
+    if (startVal === endVal) return;
+
+    let startTime: number | null = null;
+    let animFrame: number;
+
+    const step = (timestamp: number) => {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      // Smooth cubic ease-out
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCurrent(Math.round(startVal + (endVal - startVal) * eased));
+
+      if (progress < 1) {
+        animFrame = requestAnimationFrame(step);
+      }
+    };
+
+    animFrame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(animFrame);
+  }, [target, duration]);
+
+  return current;
+}
+
+interface StatCardProps {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: number;
+  loading?: boolean;
+  colorClass?: string;
+  badgeClass?: string;
+}
+
+function StatCard({
+  icon: Icon,
+  label,
+  value,
+  loading = false,
+  colorClass = "text-primary",
+  badgeClass = "bg-primary/10 border-primary/20",
+}: StatCardProps) {
+  const animatedValue = useCountUp(value);
+
   return (
-    <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-card/80 border border-border/60 backdrop-blur-sm">
-      <Icon className={cn("h-4 w-4 shrink-0", colorClass || "text-primary")} />
-      <div>
-        <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</p>
-        <p className="text-sm font-semibold text-foreground font-mono">{value}</p>
+    <div className="flex items-center gap-3.5 px-3.5 sm:px-4 py-3 rounded-lg bg-card/80 border border-border/60 backdrop-blur-sm min-w-0 shadow-sm transition-all hover:border-border">
+      <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0 border", badgeClass)}>
+        <Icon className={cn("h-4 w-4", colorClass)} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium truncate">{label}</p>
+        {loading ? (
+          <div className="h-5 w-12 rounded bg-muted/60 animate-pulse mt-0.5" />
+        ) : (
+          <p className="text-base sm:text-lg font-semibold text-foreground font-mono leading-tight">{animatedValue}</p>
+        )}
       </div>
     </div>
   );
@@ -578,6 +697,7 @@ function StatCard({ icon: Icon, label, value, colorClass }: { icon: any; label: 
 interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
+  onReset?: () => void;
 }
 
 interface ErrorBoundaryState {
@@ -599,24 +719,34 @@ export class MapErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundar
     console.error("MapErrorBoundary caught an error:", error, errorInfo);
   }
 
+  handleRetry = () => {
+    this.setState({ hasError: false, error: null });
+    this.props.onReset?.();
+  };
+
   render() {
     if (this.state.hasError) {
       if (this.props.fallback) {
         return this.props.fallback;
       }
       return (
-        <div className="p-8 text-center bg-card/90 rounded-xl border border-border/60 m-6">
-          <AlertCircle className="h-10 w-10 text-destructive mx-auto mb-3" />
-          <h2 className="text-base font-semibold text-foreground mb-1">Map View Error</h2>
-          <p className="text-xs text-muted-foreground mb-4">
-            An unexpected error occurred while rendering the map history view.
-          </p>
-          <button
-            onClick={() => this.setState({ hasError: false, error: null })}
-            className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded hover:bg-primary/90 transition-colors"
-          >
-            Retry
-          </button>
+        <div className="min-h-[500px] flex items-center justify-center p-6">
+          <div className="p-8 text-center bg-card/90 rounded-xl border border-border/60 max-w-md w-full shadow-2xl backdrop-blur-md">
+            <div className="w-12 h-12 rounded-full bg-destructive/20 border border-destructive/40 flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="h-6 w-6 text-destructive" />
+            </div>
+            <h2 className="text-base font-semibold text-foreground mb-1.5">Map View Error</h2>
+            <p className="text-xs text-muted-foreground mb-5">
+              An unexpected error occurred while rendering the geospatial map.
+            </p>
+            <button
+              onClick={this.handleRetry}
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors shadow active:scale-95"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              <span>Retry Map Initialization</span>
+            </button>
+          </div>
         </div>
       );
     }
@@ -646,8 +776,13 @@ function cutoffForFilter(filter: DateFilter): Date | null {
 function MapViewContent() {
   const [analysesData, setAnalysesData] = useState<AnalysisFeatureCollection | null>(null);
   const [catalogData, setCatalogData] = useState<CatalogFeatureCollection | null>(null);
-  const [showCatalogLayer, setShowCatalogLayer] = useState(true);
   const [showAnalysisLayer, setShowAnalysisLayer] = useState(true);
+  const [collectionVisibility, setCollectionVisibility] = useState<Record<STACCollectionKey, boolean>>({
+    "sentinel-2": true,
+    "sentinel-1": true,
+    landsat: true,
+  });
+  const [isLegendCollapsed, setIsLegendCollapsed] = useState(false);
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -657,31 +792,8 @@ function MapViewContent() {
   const analysisLayerGroupRef = useRef<L.LayerGroup | null>(null);
   const catalogLayerGroupRef = useRef<L.LayerGroup | null>(null);
 
-  // ── Derived filtered datasets ──────────────────────────────────────────────
-  const filteredAnalyses = useMemo(() => {
-    const cutoff = cutoffForFilter(dateFilter);
-    const features = analysesData?.features ?? [];
-    if (!cutoff) return features;
-    return features.filter((f) => {
-      const ts = f?.properties?.created_at;
-      if (!ts) return false;
-      try { return new Date(ts) >= cutoff; } catch { return false; }
-    });
-  }, [analysesData, dateFilter]);
-
-  const filteredCatalog = useMemo(() => {
-    const cutoff = cutoffForFilter(dateFilter);
-    const features = catalogData?.features ?? [];
-    if (!cutoff) return features;
-    return features.filter((f) => {
-      const ts = f?.properties?.datetime;
-      if (!ts) return false;
-      try { return new Date(ts) >= cutoff; } catch { return false; }
-    });
-  }, [catalogData, dateFilter]);
-
-  // Fetch both analyses and catalog data in parallel
-  useEffect(() => {
+  // Fetch both analyses and catalog data in parallel with cancel support
+  const fetchData = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -712,6 +824,12 @@ function MapViewContent() {
           console.warn("Catalog fetch non-fatal error:", catalogRes.reason);
         }
       })
+      .catch((err) => {
+        if (!cancelled) {
+          console.error("Fetch data error:", err);
+          setError("Failed to connect to SatQuery AI service.");
+        }
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -720,6 +838,11 @@ function MapViewContent() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const cancel = fetchData();
+    return cancel;
+  }, [fetchData]);
 
   // Initialize pure Leaflet map instance once
   useEffect(() => {
@@ -746,6 +869,59 @@ function MapViewContent() {
       mapInstanceRef.current = map;
     }
   }, []);
+
+  // ── Derived filtered datasets ──────────────────────────────────────────────
+  const filteredAnalyses = useMemo(() => {
+    const cutoff = cutoffForFilter(dateFilter);
+    const features = analysesData?.features ?? [];
+    if (!cutoff) return features;
+    return features.filter((f) => {
+      const ts = f?.properties?.created_at;
+      if (!ts) return false;
+      try { return new Date(ts) >= cutoff; } catch { return false; }
+    });
+  }, [analysesData, dateFilter]);
+
+  const filteredCatalog = useMemo(() => {
+    const cutoff = cutoffForFilter(dateFilter);
+    const features = catalogData?.features ?? [];
+    if (!cutoff) return features;
+    return features.filter((f) => {
+      const ts = f?.properties?.datetime;
+      if (!ts) return false;
+      try { return new Date(ts) >= cutoff; } catch { return false; }
+    });
+  }, [catalogData, dateFilter]);
+
+  // Per-collection counts across total and date-filtered views
+  const collectionCounts = useMemo(() => {
+    const counts: Record<STACCollectionKey, { total: number; visible: number }> = {
+      "sentinel-2": { total: 0, visible: 0 },
+      "sentinel-1": { total: 0, visible: 0 },
+      landsat: { total: 0, visible: 0 },
+    };
+
+    (catalogData?.features ?? []).forEach((f) => {
+      const key = getSTACCollectionKey(f?.properties?.collection);
+      counts[key].total++;
+    });
+
+    filteredCatalog.forEach((f) => {
+      const key = getSTACCollectionKey(f?.properties?.collection);
+      counts[key].visible++;
+    });
+
+    return counts;
+  }, [catalogData, filteredCatalog]);
+
+  // Catalog features actively visible on map (filtered by date & collection visibility)
+  const visibleCatalog = useMemo(() => {
+    return filteredCatalog.filter((f) => {
+      if (!f?.geometry) return false;
+      const key = getSTACCollectionKey(f.properties?.collection);
+      return collectionVisibility[key];
+    });
+  }, [filteredCatalog, collectionVisibility]);
 
   // Sync Analysis features layer
   useEffect(() => {
@@ -874,15 +1050,15 @@ function MapViewContent() {
     });
   }, [filteredAnalyses, showAnalysisLayer]);
 
-  // Sync STAC Catalog features layer (distinct solid teal styling)
+  // Sync STAC Catalog features layer (distinct per-collection styling)
   useEffect(() => {
     const layer = catalogLayerGroupRef.current;
     if (!layer) return;
 
     layer.clearLayers();
-    if (!showCatalogLayer) return;
+    if (visibleCatalog.length === 0) return;
 
-    const scenes = filteredCatalog.filter((f) => f?.geometry !== null);
+    const scenes = visibleCatalog;
 
     // Helper to resolve per-collection colours
     const getCollectionColors = (collLower: string) => {
@@ -974,18 +1150,22 @@ function MapViewContent() {
 
     catalogClusters.forEach((group) => {
       if (group.items.length === 1) {
-        const popupHtml = createCatalogPopupHtml(group.items[0]);
-        const marker = L.marker([group.centLat, group.centLng], { icon: catalogHollowIcon })
+        const item = group.items[0];
+        const collLower = (item.properties?.collection || "").toLowerCase();
+        const { stroke } = getCollectionColors(collLower);
+        const icon = getCatalogMarkerIcon(stroke);
+        const popupHtml = createCatalogPopupHtml(item);
+        const marker = L.marker([group.centLat, group.centLng], { icon })
           .bindPopup(popupHtml, { className: "leaflet-popup-dark", maxWidth: 340, closeButton: false });
         layer.addLayer(marker);
       } else {
         // Mix of collections — pick dominant colour
-        const collectionCounts: Record<string, number> = {};
+        const colCounts: Record<string, number> = {};
         group.items.forEach((f) => {
           const c = (f.properties?.collection || "other").toLowerCase();
-          collectionCounts[c] = (collectionCounts[c] || 0) + 1;
+          colCounts[c] = (colCounts[c] || 0) + 1;
         });
-        const dominant = Object.entries(collectionCounts).sort((a, b) => b[1] - a[1])[0][0];
+        const dominant = Object.entries(colCounts).sort((a, b) => b[1] - a[1])[0][0];
         const { stroke } = getCollectionColors(dominant);
 
         const clusterPopupHtml = createClusterCatalogPopupHtml(group.items);
@@ -996,7 +1176,7 @@ function MapViewContent() {
         layer.addLayer(marker);
       }
     });
-  }, [filteredCatalog, showCatalogLayer]);
+  }, [visibleCatalog]);
 
   // Auto-fit bounds once initial data arrives
   useEffect(() => {
@@ -1048,7 +1228,7 @@ function MapViewContent() {
 
   // Visible counts after date filter
   const visibleAnalysisCount = filteredAnalyses.filter((f) => f?.geometry !== null).length;
-  const visibleCatalogCount = filteredCatalog.filter((f) => f?.geometry !== null).length;
+  const visibleCatalogCount = visibleCatalog.length;
 
   return (
     <div
@@ -1056,10 +1236,10 @@ function MapViewContent() {
       style={{ background: "hsl(0 0% 4%)" }}
     >
       {/* ── Header ── */}
-      <div className="px-6 pt-10 pb-4 max-w-[1400px] mx-auto w-full">
+      <div className="px-4 sm:px-6 pt-8 sm:pt-10 pb-4 max-w-[1400px] mx-auto w-full">
         <div className="flex items-center justify-between flex-wrap gap-4 mb-2">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10 border border-primary/20">
+            <div className="p-2 rounded-lg bg-primary/10 border border-primary/20 shrink-0">
               <MapIcon className="h-5 w-5 text-primary" />
             </div>
             <div>
@@ -1067,71 +1247,112 @@ function MapViewContent() {
                 Orbital Pulse Map &amp; STAC Catalog
               </h1>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Geospatial view of persisted analyses and live metadata-only Earth Search STAC scene ingestion
+                Geospatial view of persisted analyses and live multi-collection STAC scene ingestion
               </p>
             </div>
           </div>
 
-          {/* Layer toggles */}
-          <div className="flex items-center gap-2 text-xs">
+          {/* Layer toggles bar */}
+          <div className="flex items-center flex-wrap gap-2 text-xs">
+            {/* Analyses toggle pill */}
             <button
+              type="button"
               onClick={() => setShowAnalysisLayer(!showAnalysisLayer)}
               className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-colors",
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs font-medium transition-all select-none",
                 showAnalysisLayer
-                  ? "bg-zinc-900 border-blue-600 text-blue-400"
-                  : "bg-zinc-950 border-zinc-800 text-zinc-500 line-through"
+                  ? "bg-blue-950/40 border-blue-600/70 text-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.2)]"
+                  : "bg-zinc-950/80 border-zinc-800 text-zinc-500 hover:border-zinc-700 line-through"
               )}
             >
-              <div className="w-2.5 h-2.5 rounded-full bg-blue-600" />
+              <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
               <span>Analyses ({mappedAnalyses})</span>
-              {showAnalysisLayer ? <Eye className="h-3 w-3 ml-1 text-zinc-400" /> : <EyeOff className="h-3 w-3 ml-1 text-zinc-600" />}
+              {showAnalysisLayer ? <Eye className="h-3 w-3 ml-0.5 text-blue-400/70" /> : <EyeOff className="h-3 w-3 ml-0.5 text-zinc-600" />}
             </button>
 
-            <button
-              onClick={() => setShowCatalogLayer(!showCatalogLayer)}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md border transition-colors",
-                showCatalogLayer
-                  ? "bg-zinc-900 border-teal-600 text-teal-400"
-                  : "bg-zinc-950 border-zinc-800 text-zinc-500 line-through"
-              )}
-            >
-              <div className="w-2.5 h-2.5 rounded-full bg-teal-600" />
-              <span>STAC Scenes ({totalCatalogScenes})</span>
-              {showCatalogLayer ? <Eye className="h-3 w-3 ml-1 text-zinc-400" /> : <EyeOff className="h-3 w-3 ml-1 text-zinc-600" />}
-            </button>
+            {/* STAC Per-Collection Toggles */}
+            {STAC_COLLECTIONS.map((col) => {
+              const isVisible = collectionVisibility[col.key];
+              const count = collectionCounts[col.key].visible;
+              return (
+                <button
+                  key={col.key}
+                  type="button"
+                  onClick={() =>
+                    setCollectionVisibility((prev) => ({
+                      ...prev,
+                      [col.key]: !prev[col.key],
+                    }))
+                  }
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-md border text-xs font-medium transition-all select-none",
+                    isVisible
+                      ? cn(col.badgeBg, col.badgeBorder, col.textColor)
+                      : "bg-zinc-950/80 border-zinc-800 text-zinc-500 hover:border-zinc-700 line-through"
+                  )}
+                >
+                  <div className={cn("w-2 h-2 rounded-full shrink-0", col.swatchClass)} />
+                  <span>{col.label} ({count})</span>
+                  {isVisible ? <Eye className="h-3 w-3 ml-0.5 opacity-70" /> : <EyeOff className="h-3 w-3 ml-0.5 text-zinc-600" />}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Stats row */}
-        <div className="flex flex-wrap gap-3 mt-4">
-          <StatCard icon={Layers} label="Persisted analyses" value={totalAnalyses} />
-          <StatCard icon={Crosshair} label="Mapped analyses" value={mappedAnalyses} />
+        {/* Stats row: 4 responsive cards */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+          <StatCard
+            icon={Layers}
+            label="Persisted analyses"
+            value={totalAnalyses}
+            loading={loading}
+            colorClass="text-blue-400"
+            badgeClass="bg-blue-950/60 border-blue-800/60 text-blue-400"
+          />
+          <StatCard
+            icon={Crosshair}
+            label="Mapped analyses"
+            value={mappedAnalyses}
+            loading={loading}
+            colorClass="text-sky-400"
+            badgeClass="bg-sky-950/60 border-sky-800/60 text-sky-400"
+          />
           <StatCard
             icon={Satellite}
             label="Catalogued STAC scenes"
             value={totalCatalogScenes}
+            loading={loading}
             colorClass="text-teal-400"
+            badgeClass="bg-teal-950/60 border-teal-800/60 text-teal-400"
           />
-          {withoutGeomAnalyses > 0 && (
-            <StatCard icon={AlertCircle} label="No geom" value={withoutGeomAnalyses} />
-          )}
+          <StatCard
+            icon={AlertCircle}
+            label="No geom"
+            value={withoutGeomAnalyses}
+            loading={loading}
+            colorClass={withoutGeomAnalyses > 0 ? "text-amber-400" : "text-emerald-400"}
+            badgeClass={
+              withoutGeomAnalyses > 0
+                ? "bg-amber-950/60 border-amber-800/60 text-amber-400"
+                : "bg-emerald-950/50 border-emerald-800/50 text-emerald-400"
+            }
+          />
         </div>
 
         {/* ── Date-range filter bar ── */}
-        <div className="flex items-center gap-3 mt-5 flex-wrap">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <div className="flex items-center gap-2.5 sm:gap-3 mt-4 sm:mt-5 flex-wrap text-xs">
+          <div className="flex items-center gap-1.5 text-muted-foreground shrink-0">
             <CalendarDays className="h-3.5 w-3.5" />
-            <span className="uppercase tracking-wider font-medium">Showing</span>
+            <span className="uppercase tracking-wider font-medium text-[11px]">Showing</span>
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {(["24h", "7d", "30d", "all"] as DateFilter[]).map((f) => (
               <button
                 key={f}
                 onClick={() => setDateFilter(f)}
                 className={cn(
-                  "px-3 py-1 rounded-md text-xs font-medium border transition-all duration-150",
+                  "px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium border transition-all duration-150",
                   dateFilter === f
                     ? "bg-primary/20 border-primary/60 text-primary shadow-[0_0_8px_rgba(99,131,193,0.3)]"
                     : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200",
@@ -1142,7 +1363,7 @@ function MapViewContent() {
             ))}
           </div>
           {dateFilter !== "all" && (
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground w-full sm:w-auto mt-1 sm:mt-0">
               — showing{" "}
               <span className="text-blue-400 font-medium">{visibleAnalysisCount}</span> analyses
               {" "}&amp;{" "}
@@ -1153,28 +1374,47 @@ function MapViewContent() {
       </div>
 
       {/* ── Map area ── */}
-      <div className="flex-1 px-6 pb-8 max-w-[1400px] mx-auto w-full">
+      <div className="flex-1 px-4 sm:px-6 pb-6 sm:pb-8 max-w-[1400px] mx-auto w-full">
         <div
           className="relative rounded-xl overflow-hidden border border-border shadow-2xl"
-          style={{ height: "calc(100vh - 340px)", minHeight: "480px" }}
+          style={{ height: "calc(100vh - 340px)", minHeight: "440px" }}
         >
-          {/* Loading state */}
+          {/* Loading state: Scanner Radar Skeleton */}
           {loading && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/90">
-              <Loader2 className="h-8 w-8 text-primary animate-spin mb-3" />
-              <p className="text-sm text-zinc-400">Fetching analyses and STAC scenes…</p>
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/85 backdrop-blur-sm p-6 text-center">
+              <div className="relative flex items-center justify-center mb-4">
+                <div className="absolute w-20 h-20 rounded-full border border-primary/30 animate-ping opacity-30" />
+                <div className="w-16 h-16 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
+                <div className="absolute w-10 h-10 rounded-full bg-primary/10 border border-primary/40 flex items-center justify-center">
+                  <Satellite className="h-5 w-5 text-primary" />
+                </div>
+              </div>
+              <p className="text-sm font-medium text-foreground tracking-tight">Fetching Geospatial History &amp; STAC Catalog</p>
+              <p className="text-xs text-muted-foreground mt-1 max-w-xs">
+                Connecting to SatQuery AI engine and querying PostgreSQL/PostGIS spatial features…
+              </p>
             </div>
           )}
 
-          {/* Error state */}
+          {/* Fetch Error state with working Retry button */}
           {error && !loading && totalAnalyses === 0 && (
-            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950 p-8">
-              <AlertCircle className="h-10 w-10 text-red-500 mb-4" />
-              <h2 className="text-base font-semibold text-foreground mb-2">Could not load analysis history</h2>
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-zinc-950/95 backdrop-blur-md p-6 sm:p-8 text-center">
+              <div className="w-12 h-12 rounded-full bg-destructive/20 border border-destructive/40 flex items-center justify-center mb-4">
+                <AlertCircle className="h-6 w-6 text-destructive" />
+              </div>
+              <h2 className="text-base font-semibold text-foreground mb-1.5">Could not load analysis history</h2>
               <p className="text-xs text-muted-foreground text-center max-w-xs mb-2">{error}</p>
-              <p className="text-xs text-muted-foreground/60 text-center max-w-xs">
-                Make sure the SatQuery AI service is running and the Docker stack (PostGIS) is up.
+              <p className="text-xs text-muted-foreground/60 text-center max-w-xs mb-5">
+                Make sure the SatQuery AI service is running and the database connection is healthy.
               </p>
+              <button
+                type="button"
+                onClick={() => fetchData()}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors shadow-lg active:scale-95"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                <span>Retry Connection</span>
+              </button>
             </div>
           )}
 
@@ -1184,19 +1424,127 @@ function MapViewContent() {
             style={{ height: "100%", width: "100%", background: "#0a0a0a" }}
           />
 
-          {/* Solid Persistent Layer Legend Overlay */}
-          <div className="absolute top-3 right-3 z-[1000] px-3.5 py-3 rounded-lg border border-zinc-700 bg-zinc-950 text-[11px] space-y-2 shadow-2xl">
-            <p className="font-semibold text-[10px] text-zinc-400 uppercase tracking-wider">
-              Active Layers
-            </p>
-            <div className="flex items-center gap-2 text-zinc-200">
-              <div className="w-3 h-3 rounded-full bg-blue-600 border border-white" />
-              <span>Analyses (Solid Blue Polygon &amp; Pin)</span>
+          {/* Interactive Collapsible Layer Legend Overlay */}
+          <div
+            className={cn(
+              "absolute top-3 right-3 z-[1000] rounded-xl border border-zinc-700/80 bg-zinc-950/95 backdrop-blur-md shadow-2xl transition-all duration-200",
+              isLegendCollapsed ? "w-auto" : "w-[260px] sm:w-[280px] max-w-[calc(100%-24px)]"
+            )}
+          >
+            {/* Legend Header with Collapse Toggle */}
+            <div
+              onClick={() => setIsLegendCollapsed(!isLegendCollapsed)}
+              className="flex items-center justify-between gap-2 px-3.5 py-2.5 cursor-pointer select-none hover:bg-zinc-900/50 rounded-xl"
+            >
+              <div className="flex items-center gap-2">
+                <Layers className="h-3.5 w-3.5 text-primary" />
+                <span className="font-semibold text-[11px] text-zinc-300 uppercase tracking-wider">
+                  Layers &amp; Legend
+                </span>
+              </div>
+              <button
+                type="button"
+                className="p-0.5 text-zinc-400 hover:text-zinc-200 rounded transition-colors"
+                aria-label={isLegendCollapsed ? "Expand legend" : "Collapse legend"}
+              >
+                {isLegendCollapsed ? (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                )}
+              </button>
             </div>
-            <div className="flex items-center gap-2 text-zinc-200">
-              <div className="w-3 h-3 rounded-full bg-teal-600 border border-white" />
-              <span>STAC Catalog (Solid Teal Polygon &amp; Marker)</span>
-            </div>
+
+            {/* Expanded Content */}
+            {!isLegendCollapsed && (
+              <div className="px-3.5 pb-3.5 pt-1 space-y-2 border-t border-zinc-800/80 text-[11px]">
+                {/* Analyses layer row */}
+                <div className="pt-1">
+                  <label
+                    htmlFor="layer-toggle-analyses"
+                    className="flex items-center justify-between gap-2 cursor-pointer group py-1 select-none"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <input
+                        id="layer-toggle-analyses"
+                        type="checkbox"
+                        checked={showAnalysisLayer}
+                        onChange={(e) => setShowAnalysisLayer(e.target.checked)}
+                        className="h-3.5 w-3.5 rounded border-zinc-700 bg-zinc-900 text-blue-600 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer"
+                      />
+                      <div className="w-2.5 h-2.5 rounded-full bg-blue-600 border border-white/80 shrink-0" />
+                      <span className="text-zinc-200 font-medium group-hover:text-white transition-colors">
+                        Analyses
+                      </span>
+                    </div>
+                    <span className="font-mono text-[10px] text-zinc-400">
+                      {mappedAnalyses}
+                    </span>
+                  </label>
+                </div>
+
+                <div className="h-px bg-zinc-800/80 my-1.5" />
+
+                {/* STAC Collections sub-heading */}
+                <div className="flex items-center justify-between text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
+                  <span>STAC Collections</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allOn = STAC_COLLECTIONS.every((c) => collectionVisibility[c.key]);
+                      setCollectionVisibility({
+                        "sentinel-2": !allOn,
+                        "sentinel-1": !allOn,
+                        landsat: !allOn,
+                      });
+                    }}
+                    className="text-primary hover:text-primary/80 transition-colors lowercase font-mono text-[10px]"
+                  >
+                    {STAC_COLLECTIONS.every((c) => collectionVisibility[c.key]) ? "hide all" : "show all"}
+                  </button>
+                </div>
+
+                {/* Individual STAC collections */}
+                {STAC_COLLECTIONS.map((col) => {
+                  const isChecked = collectionVisibility[col.key];
+                  const count = collectionCounts[col.key].visible;
+                  return (
+                    <label
+                      key={col.key}
+                      htmlFor={`layer-toggle-${col.key}`}
+                      className="flex items-center justify-between gap-2 cursor-pointer group py-1 select-none"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <input
+                          id={`layer-toggle-${col.key}`}
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() =>
+                            setCollectionVisibility((prev) => ({
+                              ...prev,
+                              [col.key]: !prev[col.key],
+                            }))
+                          }
+                          className="h-3.5 w-3.5 rounded border-zinc-700 bg-zinc-900 text-teal-600 focus:ring-teal-500 focus:ring-offset-0 cursor-pointer shrink-0"
+                        />
+                        <div className={cn("w-2.5 h-2.5 rounded-full border border-white/80 shrink-0", col.swatchClass)} />
+                        <div className="min-w-0">
+                          <span className={cn("font-medium block leading-tight truncate transition-colors", isChecked ? "text-zinc-200 group-hover:text-white" : "text-zinc-500 line-through")}>
+                            {col.label}
+                          </span>
+                          <span className="text-[9px] text-zinc-400 block leading-tight font-mono">
+                            {col.subLabel}
+                          </span>
+                        </div>
+                      </div>
+                      <span className={cn("font-mono text-[10px] shrink-0", isChecked ? col.textColor : "text-zinc-600")}>
+                        {count}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Leaflet attribution overlay */}
@@ -1270,9 +1618,11 @@ function MapViewContent() {
 }
 
 export default function MapView() {
+  const [retryKey, setRetryKey] = useState(0);
+
   return (
-    <MapErrorBoundary>
-      <MapViewContent />
+    <MapErrorBoundary onReset={() => setRetryKey((k) => k + 1)}>
+      <MapViewContent key={retryKey} />
     </MapErrorBoundary>
   );
 }
