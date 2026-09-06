@@ -488,24 +488,28 @@ async def stac_catalog_daemon() -> None:
             inserted = await loop.run_in_executor(None, ingest_stac_pass)
 
             # ── Bi-temporal materialisation ─────────────────────────────────
-            # Attempt to replace synthetic scenario files with real imagery for
-            # each ROI that maps to a local scenario directory.
-            if inserted > 0 or True:  # always attempt; idempotent write
-                for roi in DEFAULT_ROIS:
-                    if roi.get("scenario_dir"):
-                        try:
-                            await loop.run_in_executor(
-                                None,
-                                fetch_bitemporal_pair_for_roi,
-                                roi,
-                                "data",
-                            )
-                        except Exception as mat_err:
-                            logger.warning(
-                                "Bi-temporal materialisation failed for ROI '%s' (non-fatal): %s",
-                                roi["name"],
-                                mat_err,
-                            )
+            # Always attempt, regardless of whether this pass inserted new
+            # scenes.  Rationale: the scenario files on disk may still be
+            # synthetic placeholders from a previous run even if tonight's
+            # ingestion pass found zero *new* scenes (all duplicates).  The
+            # materialisation function is cheap (one PostGIS point-in-polygon
+            # look-up) and idempotent — it overwrites only when pixel data is
+            # successfully fetched, so running it every cycle is safe.
+            for roi in DEFAULT_ROIS:
+                if roi.get("scenario_dir"):
+                    try:
+                        await loop.run_in_executor(
+                            None,
+                            fetch_bitemporal_pair_for_roi,
+                            roi,
+                            "data",
+                        )
+                    except Exception as mat_err:
+                        logger.warning(
+                            "Bi-temporal materialisation failed for ROI '%s' (non-fatal): %s",
+                            roi["name"],
+                            mat_err,
+                        )
 
         except asyncio.CancelledError:
             logger.info("STAC catalog daemon cancelled.")
