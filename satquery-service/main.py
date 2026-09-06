@@ -158,16 +158,30 @@ async def analyze_query(request: Request):
             )
             if matched_scene:
                 logger.info(f"Query by location: matched scene {matched_scene['scene_id']} ({matched_scene['collection']})")
-                from stac_catalog import fetch_scene_image_bytes
-                raw_bytes = fetch_scene_image_bytes(matched_scene)
+                from stac_catalog import fetch_scene_cog_data
+                cog_data = fetch_scene_cog_data(matched_scene)
+                raw_bytes = cog_data.get("image_bytes")
+                if cog_data.get("ndvi_metrics"):
+                    custom_params["stac_cog_metrics"] = cog_data["ndvi_metrics"]
+
                 if raw_bytes:
+                    logger.info(f"Query by location: fetched {len(raw_bytes):,} bytes from scene {matched_scene['scene_id']}")
                     scene_img = load_image_robust(raw_bytes)
                     if scene_img:
+                        logger.info(f"Query by location: decoded image {scene_img.size} mode={scene_img.mode}")
                         images_payload.append(scene_img)
+                        # A single lazily-fetched scene is always a single-image query;
+                        # override temporal so the controller doesn't misroute to change_vqa
+                        # based purely on query text keywords (e.g. "deforestation").
+                        temporal = "single"
                         buf = io.BytesIO()
                         scene_img.save(buf, format="JPEG", quality=85)
                         b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
                         preview_base64_list.append(f"data:image/jpeg;base64,{b64_str}")
+                    else:
+                        logger.warning(f"Query by location: load_image_robust returned None for scene {matched_scene['scene_id']}")
+                else:
+                    logger.warning(f"Query by location: fetch_scene_cog_data returned no bytes for scene {matched_scene['scene_id']}")
 
                 # Pass matched scene geometry and metadata into trace params
                 geom = matched_scene.get("geometry")
@@ -178,10 +192,12 @@ async def analyze_query(request: Request):
                         custom_params["scene_geometry_wkt"] = f"POLYGON(({pts}))"
                 custom_params["catalog_scene_id"] = matched_scene.get("scene_id")
                 custom_params["catalog_collection"] = matched_scene.get("collection")
+                if matched_scene.get("thumbnail_url"):
+                    custom_params["catalog_thumbnail_url"] = matched_scene["thumbnail_url"]
             else:
                 logger.warning(f"Query by location: no catalogued scene found covering ({f_lon}, {f_lat})")
         except Exception as loc_err:
-            logger.warning(f"Failed to lookup or fetch scene by location: {loc_err}")
+            logger.warning(f"Failed to lookup or fetch scene by location: {loc_err}", exc_info=True)
 
     # If scenario specified, load bi-temporal pair for change detection / change-VQA
     if scenario:

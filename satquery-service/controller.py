@@ -226,27 +226,77 @@ def _compute_single_image_metrics(
     params: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Compute landcover breakdown + NDVI for single-image VQA tasks when a GeoTIFF path is available.
+    Compute landcover breakdown + NDVI for single-image VQA tasks.
+
+    Primary path: GeoTIFF file path in params (full multi-band rasterio read).
+    Fallback path: PIL image in images list (e.g. JPEG thumbnail from a lazy STAC
+      fetch for a location query) — derives approximate NDVI from RGB channels
+      using the red channel as NIR proxy and green as Red (typical false-colour
+      approximation for JPEG previews which lack a true NIR band).
     """
+    # Check for real multi-band COG metrics (B04 Red + B08 NIR) computed during STAC fetch
+    if params.get("stac_cog_metrics"):
+        cog_metrics = params["stac_cog_metrics"]
+        return {
+            "task": "vqa",
+            "georeferenced": True,
+            "source": cog_metrics.get("source", "sentinel2_l2a_cogs"),
+            "ndvi": cog_metrics,
+        }
+
     tif_path = params.get("before_tif_path") or params.get("tif_path")
-    if not tif_path:
-        return {}
+    if tif_path:
+        bands = _load_bands_from_path(tif_path)
+        if bands is not None:
+            metrics: Dict[str, Any] = {"task": "vqa"}
+            try:
+                metrics["ndvi"] = compute_ndvi_coverage(bands)
+            except Exception as e:
+                logger.warning(f"compute_ndvi_coverage(single/tif) failed: {e}")
+            try:
+                metrics["landcover"] = compute_landcover_breakdown(bands)
+            except Exception as e:
+                logger.warning(f"compute_landcover_breakdown(single/tif) failed: {e}")
+            return metrics if len(metrics) > 1 else {}
 
-    bands = _load_bands_from_path(tif_path)
-    if bands is None:
-        return {}
+    # Fallback: PIL image from location-based STAC fetch (JPEG thumbnail)
+    pil_img = next((img for img in images if hasattr(img, "getbands")), None)
+    if pil_img is not None:
+        try:
+            import numpy as np
+            img_arr = np.array(pil_img.convert("RGB")).astype(float)
+            # R=0, G=1, B=2 — use R as NIR proxy, G as Red proxy for rough NDVI
+            nir = img_arr[:, :, 0] / 255.0
+            red = img_arr[:, :, 1] / 255.0
+            denom = nir + red
+            denom[denom == 0] = 1e-6
+            ndvi = (nir - red) / denom  # range roughly [-1, 1]
+            total_px = ndvi.size
+            veg_mask = ndvi > 0.2
+            dense_mask = ndvi > 0.5
+            veg_pct = float(np.sum(veg_mask) / total_px * 100)
+            dense_pct = float(np.sum(dense_mask) / total_px * 100)
+            mean_ndvi = float(np.mean(ndvi))
+            metrics = {
+                "task": "vqa",
+                "georeferenced": False,
+                "source": "rgb_proxy",  # signals this is approximate
+                "ndvi": {
+                    "vegetation_pct": round(veg_pct, 2),
+                    "vegetation_pct_sparse": round(veg_pct, 2),
+                    "vegetation_pct_dense": round(dense_pct, 2),
+                    "mean_ndvi": round(mean_ndvi, 4),
+                    "total_pixels": total_px,
+                },
+            }
+            logger.info(
+                f"PIL fallback metrics: veg={veg_pct:.1f}% dense={dense_pct:.1f}% mean_ndvi={mean_ndvi:.3f}"
+            )
+            return metrics
+        except Exception as e:
+            logger.warning(f"PIL fallback metrics computation failed: {e}")
 
-    metrics: Dict[str, Any] = {"task": "vqa"}
-    try:
-        metrics["ndvi"] = compute_ndvi_coverage(bands)
-    except Exception as e:
-        logger.warning(f"compute_ndvi_coverage(single) failed: {e}")
-    try:
-        metrics["landcover"] = compute_landcover_breakdown(bands)
-    except Exception as e:
-        logger.warning(f"compute_landcover_breakdown(single) failed: {e}")
-
-    return metrics if len(metrics) > 1 else {}
+    return {}
 
 
 def route_and_execute(

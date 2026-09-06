@@ -86,7 +86,12 @@ ml/geochat/finetune/dataset/
 public/nasa_check_tmp.jpg
 # Debug output files from development sessions
 debug_out*.txt
+debug_out*.json
+
+# Root-level dev/QA result dumps (e2e runs, geochat smoke-tests, etc.)
+e2e_*.json
+real_geochat_*.json
+*_result.json
 
 # Temporary data fetch scripts
 satquery-service/scripts/fetch_real_sat_data.py
-
