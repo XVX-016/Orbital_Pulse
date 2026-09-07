@@ -689,7 +689,7 @@ export default function Analyze() {
                 {/* Task Type Hint */}
                 <div>
                   <span className="label-micro block mb-1 text-muted-foreground">Task Specialist</span>
-                  <div className="flex bg-[#121212] p-1 rounded-md border border-border text-xs">
+                  <div className="flex flex-wrap gap-1 bg-[#121212] p-1 rounded-md border border-border text-xs">
                     {(
                       [
                         { id: "auto", label: "Auto Classifier" },
@@ -704,7 +704,7 @@ export default function Analyze() {
                         type="button"
                         onClick={() => setTaskHint(t.id)}
                         className={cn(
-                          "px-2.5 py-1 rounded font-medium transition-all",
+                          "px-2.5 py-1 rounded font-medium transition-all whitespace-nowrap text-xs",
                           taskHint === t.id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                         )}
                       >
@@ -717,14 +717,14 @@ export default function Analyze() {
                 {/* Modality Selector */}
                 <div>
                   <span className="label-micro block mb-1 text-muted-foreground">Modality</span>
-                  <div className="flex bg-[#121212] p-1 rounded-md border border-border text-xs">
+                  <div className="flex flex-wrap gap-1 bg-[#121212] p-1 rounded-md border border-border text-xs">
                     {(["optical", "sar", "both"] as Modality[]).map((m) => (
                       <button
                         key={m}
                         type="button"
                         onClick={() => { setModality(m); clearWorkspace(); }}
                         className={cn(
-                          "px-3 py-1 rounded font-medium capitalize transition-all",
+                          "px-3 py-1 rounded font-medium capitalize transition-all whitespace-nowrap text-xs",
                           modality === m ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                         )}
                       >
@@ -737,7 +737,7 @@ export default function Analyze() {
                 {/* Temporal Selector */}
                 <div>
                   <span className="label-micro block mb-1 text-muted-foreground">Temporal Mode</span>
-                  <div className="flex bg-[#121212] p-1 rounded-md border border-border text-xs">
+                  <div className="flex flex-wrap gap-1 bg-[#121212] p-1 rounded-md border border-border text-xs">
                     {(["single", "bi-temporal"] as Temporal[]).map((t) => (
                       <button
                         key={t}
@@ -748,7 +748,7 @@ export default function Analyze() {
                           if (t === "single") setScenarioId(null);
                         }}
                         className={cn(
-                          "px-3 py-1 rounded font-medium capitalize transition-all",
+                          "px-3 py-1 rounded font-medium capitalize transition-all whitespace-nowrap text-xs",
                           temporal === t ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
                         )}
                       >
@@ -790,7 +790,7 @@ export default function Analyze() {
               </div>
 
               {/* Upload Button Trigger & Submit CTA */}
-              <div className="flex items-center gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                 {inputMode === "upload" && (
                   <>
                     <input
@@ -806,7 +806,7 @@ export default function Analyze() {
                       variant="outline"
                       size="lg"
                       onClick={() => fileInputRef.current?.click()}
-                      className="border-border bg-[#121212] hover:border-primary"
+                      className="border-border bg-[#121212] hover:border-primary w-full sm:w-auto"
                     >
                       <Upload className="mr-2 h-4 w-4" />
                       Upload GeoTIFF / Image
@@ -819,7 +819,7 @@ export default function Analyze() {
                   disabled={isRunning || !query.trim()}
                   onClick={handleRunAnalysis}
                   className={cn(
-                    "shadow-lg min-w-[160px] transition-opacity",
+                    "shadow-lg min-w-[160px] w-full sm:w-auto transition-opacity",
                     isRunning ? "opacity-60 cursor-not-allowed" : "hover:shadow-primary/20"
                   )}
                 >

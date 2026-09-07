@@ -78,6 +78,19 @@ def _load_geotransform_from_path(path: str):
         return None
 
 
+def _get_band_count(arr: np.ndarray) -> int:
+    """Return number of spectral channels in array (C, H, W) or (H, W, C)."""
+    if arr.ndim == 2:
+        return 1
+    if arr.ndim == 3:
+        if arr.shape[0] <= 16 and (arr.shape[0] < arr.shape[1] or arr.shape[-1] > 16):
+            return int(arr.shape[0])
+        elif arr.shape[-1] <= 16:
+            return int(arr.shape[-1])
+        return int(arr.shape[0])
+    return 0
+
+
 def _compute_change_vqa_metrics(
     images: List[Any],
     params: Dict[str, Any],
@@ -110,31 +123,62 @@ def _compute_change_vqa_metrics(
     if before_bands is None and after_bands is None:
         return {}
 
-    # --- Per-date NDVI coverage
+    before_band_count = _get_band_count(before_bands) if before_bands is not None else 0
+    after_band_count = _get_band_count(after_bands) if after_bands is not None else 0
+
+    # --- Per-date NDVI coverage (requires band_count >= 4, e.g. NIR band)
     if before_bands is not None:
-        try:
-            metrics["before_ndvi"] = compute_ndvi_coverage(before_bands)
-        except Exception as e:
-            logger.warning(f"compute_ndvi_coverage(before) failed: {e}")
+        if before_band_count < 4:
+            logger.info(
+                f"Skipping NDVI for before_bands: band_count={before_band_count} < 4 (RGB-only, lacks NIR band)"
+            )
+            metrics["before_ndvi"] = None
+        else:
+            try:
+                metrics["before_ndvi"] = compute_ndvi_coverage(before_bands)
+            except Exception as e:
+                logger.warning(f"compute_ndvi_coverage(before) failed: {e}")
+                metrics["before_ndvi"] = None
 
     if after_bands is not None:
-        try:
-            metrics["after_ndvi"] = compute_ndvi_coverage(after_bands)
-        except Exception as e:
-            logger.warning(f"compute_ndvi_coverage(after) failed: {e}")
+        if after_band_count < 4:
+            logger.info(
+                f"Skipping NDVI for after_bands: band_count={after_band_count} < 4 (RGB-only, lacks NIR band)"
+            )
+            metrics["after_ndvi"] = None
+        else:
+            try:
+                metrics["after_ndvi"] = compute_ndvi_coverage(after_bands)
+            except Exception as e:
+                logger.warning(f"compute_ndvi_coverage(after) failed: {e}")
+                metrics["after_ndvi"] = None
 
-    # --- Per-date landcover breakdown
+    # --- Per-date landcover breakdown (requires multi-spectral NIR/SWIR, band_count >= 4)
     if before_bands is not None:
-        try:
-            metrics["before_landcover"] = compute_landcover_breakdown(before_bands)
-        except Exception as e:
-            logger.warning(f"compute_landcover_breakdown(before) failed: {e}")
+        if before_band_count < 4:
+            logger.info(
+                f"Skipping landcover for before_bands: band_count={before_band_count} < 4 (requires NIR/SWIR)"
+            )
+            metrics["before_landcover"] = None
+        else:
+            try:
+                metrics["before_landcover"] = compute_landcover_breakdown(before_bands)
+            except Exception as e:
+                logger.warning(f"compute_landcover_breakdown(before) failed: {e}")
+                metrics["before_landcover"] = None
 
     if after_bands is not None:
-        try:
-            metrics["after_landcover"] = compute_landcover_breakdown(after_bands)
-        except Exception as e:
-            logger.warning(f"compute_landcover_breakdown(after) failed: {e}")
+        if after_band_count < 4:
+            logger.info(
+                f"Skipping landcover for after_bands: band_count={after_band_count} < 4 (requires NIR/SWIR)"
+            )
+            metrics["after_landcover"] = None
+        else:
+            try:
+                metrics["after_landcover"] = compute_landcover_breakdown(after_bands)
+            except Exception as e:
+                logger.warning(f"compute_landcover_breakdown(after) failed: {e}")
+                metrics["after_landcover"] = None
 
     # --- Bi-temporal change area (only when we have both dates)
     if before_bands is not None and after_bands is not None:
@@ -249,52 +293,42 @@ def _compute_single_image_metrics(
         bands = _load_bands_from_path(tif_path)
         if bands is not None:
             metrics: Dict[str, Any] = {"task": "vqa"}
-            try:
-                metrics["ndvi"] = compute_ndvi_coverage(bands)
-            except Exception as e:
-                logger.warning(f"compute_ndvi_coverage(single/tif) failed: {e}")
-            try:
-                metrics["landcover"] = compute_landcover_breakdown(bands)
-            except Exception as e:
-                logger.warning(f"compute_landcover_breakdown(single/tif) failed: {e}")
+            band_count = _get_band_count(bands)
+            if band_count < 4:
+                logger.info(
+                    f"Skipping NDVI/landcover for single-image GeoTIFF: band_count={band_count} < 4 (RGB-only, lacks NIR band)"
+                )
+                metrics["ndvi"] = None
+                metrics["landcover"] = None
+            else:
+                try:
+                    metrics["ndvi"] = compute_ndvi_coverage(bands)
+                except Exception as e:
+                    logger.warning(f"compute_ndvi_coverage(single/tif) failed: {e}")
+                    metrics["ndvi"] = None
+                try:
+                    metrics["landcover"] = compute_landcover_breakdown(bands)
+                except Exception as e:
+                    logger.warning(f"compute_landcover_breakdown(single/tif) failed: {e}")
+                    metrics["landcover"] = None
             return metrics if len(metrics) > 1 else {}
 
     # Fallback: PIL image from location-based STAC fetch (JPEG thumbnail)
     pil_img = next((img for img in images if hasattr(img, "getbands")), None)
     if pil_img is not None:
-        try:
-            import numpy as np
-            img_arr = np.array(pil_img.convert("RGB")).astype(float)
-            # R=0, G=1, B=2 — use R as NIR proxy, G as Red proxy for rough NDVI
-            nir = img_arr[:, :, 0] / 255.0
-            red = img_arr[:, :, 1] / 255.0
-            denom = nir + red
-            denom[denom == 0] = 1e-6
-            ndvi = (nir - red) / denom  # range roughly [-1, 1]
-            total_px = ndvi.size
-            veg_mask = ndvi > 0.2
-            dense_mask = ndvi > 0.5
-            veg_pct = float(np.sum(veg_mask) / total_px * 100)
-            dense_pct = float(np.sum(dense_mask) / total_px * 100)
-            mean_ndvi = float(np.mean(ndvi))
-            metrics = {
+        bands_list = pil_img.getbands()
+        band_count = len(bands_list) if bands_list else 0
+        if band_count < 4:
+            logger.info(
+                f"Skipping NDVI for PIL image thumbnail: band_count={band_count} < 4 (RGB-only, lacks NIR band)"
+            )
+            return {
                 "task": "vqa",
                 "georeferenced": False,
-                "source": "rgb_proxy",  # signals this is approximate
-                "ndvi": {
-                    "vegetation_pct": round(veg_pct, 2),
-                    "vegetation_pct_sparse": round(veg_pct, 2),
-                    "vegetation_pct_dense": round(dense_pct, 2),
-                    "mean_ndvi": round(mean_ndvi, 4),
-                    "total_pixels": total_px,
-                },
+                "source": "rgb_preview",
+                "ndvi": None,
+                "landcover": None,
             }
-            logger.info(
-                f"PIL fallback metrics: veg={veg_pct:.1f}% dense={dense_pct:.1f}% mean_ndvi={mean_ndvi:.3f}"
-            )
-            return metrics
-        except Exception as e:
-            logger.warning(f"PIL fallback metrics computation failed: {e}")
 
     return {}
 

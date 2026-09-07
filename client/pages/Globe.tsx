@@ -81,7 +81,7 @@ export default function Globe() {
       {/* Top Bar: Search Bar with Autocomplete & Active Status */}
       <div className="pointer-events-auto absolute left-1/2 top-24 z-20 -translate-x-1/2 flex flex-col items-center gap-2">
         <div className="relative">
-          <label className="group flex h-11 w-[320px] sm:w-[380px] items-center overflow-hidden rounded-md border border-border bg-card/90 backdrop-blur-md transition-all duration-200 focus-within:border-accent">
+          <label className="group flex h-11 w-[calc(100vw-32px)] max-w-[320px] sm:max-w-[380px] sm:w-[380px] items-center overflow-hidden rounded-md border border-border bg-card/90 backdrop-blur-md transition-all duration-200 focus-within:border-accent">
             <Search aria-hidden="true" className="ml-3 h-4 w-4 shrink-0 text-muted-foreground" />
             <input
               type="search"
@@ -142,7 +142,7 @@ export default function Globe() {
 
       {/* Satellite Classification Legend */}
       {layersVisible && (
-        <div className="pointer-events-auto absolute top-24 left-6 z-20 flex flex-col gap-2 rounded-lg border border-border/80 bg-card/85 p-3 text-xs backdrop-blur-md shadow-xl w-44">
+        <div className="pointer-events-auto absolute bottom-24 left-4 md:bottom-auto md:top-24 md:left-6 z-20 flex flex-col gap-2 rounded-lg border border-border/80 bg-card/85 p-3 text-xs backdrop-blur-md shadow-xl w-44">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Classification
           </div>
