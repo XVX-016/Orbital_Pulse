@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft, FlaskConical, Leaf, Map, BarChart2, Layers, MapPin, Calendar, Satellite, Globe2 } from "lucide-react";
+import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft, FlaskConical, Leaf, Map, BarChart2, Layers, MapPin, Calendar, Satellite, Globe2, ChevronDown, ChevronUp, SlidersHorizontal } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Button } from "@/components/ui/button";
@@ -146,6 +146,8 @@ interface AnalyzeResponse {
   execution_trace: ExecutionTrace;
   preview_image_base64?: string;
   preview_images_base64?: string[];
+  data_warnings?: string[];
+  data_source?: "cached_catalog" | "live_fallback" | string;
 }
 
 // ─── Deterministic Metrics Panel ────────────────────────────────────────────
@@ -359,8 +361,9 @@ function LocationPickerMap({ lat, lon, onPick }: { lat: number | null; lon: numb
       zoomControl: true,
       attributionControl: false,
     });
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
       maxZoom: 19,
+      attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community",
     }).addTo(map);
     mapRef.current = map;
 
@@ -394,11 +397,16 @@ function LocationPickerMap({ lat, lon, onPick }: { lat: number | null; lon: numb
   }, [lat, lon]);
 
   return (
-    <div
-      ref={containerRef}
-      className="w-full rounded-lg overflow-hidden border border-border"
-      style={{ height: 260, cursor: "crosshair" }}
-    />
+    <div className="relative w-full rounded-lg overflow-hidden border border-border" style={{ height: 260 }}>
+      <div
+        ref={containerRef}
+        className="w-full h-full"
+        style={{ cursor: "crosshair" }}
+      />
+      <div className="absolute bottom-1 right-1 z-[400] text-[9px] text-zinc-400 bg-zinc-950/80 backdrop-blur-sm border border-zinc-800 px-1.5 py-0.5 rounded pointer-events-none">
+        &copy; Esri World Imagery
+      </div>
+    </div>
   );
 }
 
@@ -418,6 +426,12 @@ export default function Analyze() {
 
   // Input mode: upload or query-by-location
   const [inputMode, setInputMode] = useState<InputMode>("upload");
+
+  // Collapsible Advanced Options toggle (local state, not persisted)
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Execution Trace collapsible state: default collapsed, auto-expands on data_warnings
+  const [showTrace, setShowTrace] = useState(false);
 
   // Location query state
   const [locationLat, setLocationLat] = useState<number | null>(null);
@@ -569,6 +583,12 @@ export default function Analyze() {
 
       const data: AnalyzeResponse = await response.json();
       setResult(data);
+      // Auto-expand trace if data_warnings are present so user immediately sees diagnostic details
+      if (data.data_warnings && data.data_warnings.length > 0) {
+        setShowTrace(true);
+      } else {
+        setShowTrace(false);
+      }
     } catch (e: any) {
       console.error("Analysis query failed", e);
       setError(e.message || "Failed to reach SatQuery AI service. Please verify backend state.");
@@ -592,6 +612,36 @@ export default function Analyze() {
   const isGroundingResult = Array.isArray(result?.visual_evidence);
   const groundingBoxes: GroundingBox[] = isGroundingResult ? (result.visual_evidence as GroundingBox[]) : [];
 
+  const TASK_HINT_LABELS: Record<TaskHint, string> = {
+    auto: "Auto Classifier",
+    vqa: "Optical VQA",
+    grounding: "Grounding",
+    change: "Change VQA",
+    sar_fusion: "SAR Fusion",
+  };
+
+  // Determine non-default overrides inside the Advanced section
+  const activeOverrides: string[] = [];
+  if (taskHint !== "auto") {
+    activeOverrides.push(`Specialist: ${TASK_HINT_LABELS[taskHint]}`);
+  }
+  if (modality !== "optical") {
+    activeOverrides.push(`Modality: ${modality === "both" ? "Optical + SAR" : modality.toUpperCase()}`);
+  }
+  if (temporal !== "single") {
+    activeOverrides.push("Temporal: Bi-Temporal");
+  }
+  if (satCollection !== "sentinel-2-l2a") {
+    const collShort = satCollection === "sentinel-1-grd" ? "Sentinel-1 GRD" : "Landsat C2";
+    activeOverrides.push(`Collection: ${collShort}`);
+  }
+  if (startDate || endDate) {
+    activeOverrides.push(`Date: ${[startDate, endDate].filter(Boolean).join(" → ")}`);
+  }
+  if (scenarioId) {
+    activeOverrides.push(`Scenario: ${SCENARIOS[scenarioId]?.title || scenarioId}`);
+  }
+
   return (
     <div className="min-h-screen px-6 pb-24 pt-24 relative bg-background">
       {/* Background Ambient Glow */}
@@ -608,161 +658,358 @@ export default function Analyze() {
           </p>
         </div>
 
-        {/* Preset Query Pills */}
-        <div className="mb-6 flex flex-wrap items-center gap-2">
-          <span className="label-micro text-muted-foreground mr-2">Preset Workflows:</span>
-          {PRESET_QUERIES.map((preset) => (
-            <button
-              key={preset.label}
-              type="button"
-              onClick={() => {
-                clearWorkspace();
-                setQuery(preset.query);
-                setModality(preset.modality);
-                setTemporal(preset.temporal);
-                setTaskHint(preset.taskHint);
-                setScenarioId(preset.scenario ?? null);
-              }}
-              className="text-xs px-3 py-1.5 rounded-md border border-border bg-card/60 hover:bg-card hover:border-primary/50 text-secondary-foreground transition-all duration-150"
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
+        {/* ═══ Input Panel ═══ */}
+        <div className="rounded-xl border border-border bg-card/80 p-6 shadow-xl backdrop-blur-md mb-8 space-y-4">
 
-        {/* Query Input Box, Selectors & Input Mode Panel */}
-        <div className="rounded-xl border border-border bg-card/80 p-6 shadow-xl backdrop-blur-md mb-8">
-          {/* Input Mode Toggle */}
-          <div className="flex items-center gap-1 p-1 rounded-lg bg-[#121212] border border-border mb-5 w-fit">
-            <button
-              type="button"
-              onClick={() => { setInputMode("upload"); setResult(null); setError(null); }}
-              className={cn(
-                "flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-medium transition-all",
-                inputMode === "upload" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Upload className="h-3.5 w-3.5" />
-              Upload Image
-            </button>
-            <button
-              type="button"
-              onClick={() => { setInputMode("location"); setResult(null); setError(null); }}
-              className={cn(
-                "flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-medium transition-all",
-                inputMode === "location" ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground"
-              )}
-            >
-              <Globe2 className="h-3.5 w-3.5" />
-              Query by Location
-            </button>
+          {/* 1 ▸ Query textarea */}
+          <div>
+            <label htmlFor="query-input" className="label-micro mb-2 block text-muted-foreground">
+              Query Prompt
+            </label>
+            <textarea
+              id="query-input"
+              rows={3}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Ask SatQuery AI a question about your satellite imagery…"
+              className="w-full rounded-lg border border-border bg-[#121212] px-4 py-3 text-body text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+
+            {/* Event-link nudge */}
+            {arrivedViaEventLink && uploadedFiles.length === 0 && (
+              <div className="mt-2 flex items-start gap-2.5 rounded-md border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-xs text-primary/80">
+                <Upload className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>
+                  <span className="font-semibold">Image required to analyze this event.</span>{" "}
+                  Upload a satellite image of the region using the button below, then run the query.
+                </span>
+              </div>
+            )}
+
+            {/* 2 ▸ Scenario preset pills — lightweight inline suggestions */}
+            <div className="mt-3 flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground/50 mr-1">Suggestions:</span>
+              {PRESET_QUERIES.map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() => {
+                    clearWorkspace();
+                    setQuery(preset.query);
+                    setModality(preset.modality);
+                    setTemporal(preset.temporal);
+                    setTaskHint(preset.taskHint);
+                    setScenarioId(preset.scenario ?? null);
+                  }}
+                  className="text-[11px] px-2.5 py-1 rounded-full border border-border/60 bg-transparent hover:bg-primary/10 hover:border-primary/40 text-muted-foreground hover:text-foreground transition-all duration-150"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="query-input" className="label-micro mb-2 block text-muted-foreground">
-                Query Prompt
-              </label>
-              <textarea
-                id="query-input"
-                rows={3}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Ask SatQuery AI a question about your satellite imagery (e.g. 'Where are the runway and building structures in this aerial view?')..."
-                className="w-full rounded-lg border border-border bg-[#121212] px-4 py-3 text-body text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              {/* Event-link nudge: shown only when arriving from an Earth Event card with no image yet */}
-              {arrivedViaEventLink && uploadedFiles.length === 0 && (
-                <div className="mt-2 flex items-start gap-2.5 rounded-md border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-xs text-primary/80">
-                  <Upload className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                  <span>
-                    <span className="font-semibold">Image required to analyze this event.</span>{" "}
-                    Upload a satellite image of the region using the button below, then run the query.
-                  </span>
-                </div>
-              )}
+          {/* 3 ▸ Unified input control: Upload ↔ Click Map */}
+          <div className="rounded-lg border border-border/60 bg-[#0e0e0e] overflow-hidden">
+            {/* Tab strip */}
+            <div className="flex border-b border-border/50">
+              <button
+                type="button"
+                id="input-tab-upload"
+                onClick={() => { setInputMode("upload"); setResult(null); setError(null); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-all border-b-2 -mb-px",
+                  inputMode === "upload"
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Upload className="h-3.5 w-3.5" /> Upload Image
+              </button>
+              <button
+                type="button"
+                id="input-tab-location"
+                onClick={() => { setInputMode("location"); setResult(null); setError(null); }}
+                className={cn(
+                  "flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-all border-b-2 -mb-px",
+                  inputMode === "location"
+                    ? "border-primary text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <Globe2 className="h-3.5 w-3.5" /> Click Map
+              </button>
             </div>
 
-            {/* Task Specialist & Input Controls */}
-            <div className="flex flex-wrap items-center justify-between gap-4 pt-2 border-t border-border/50">
-              <div className="flex flex-wrap items-center gap-6">
-                {/* Task Type Hint */}
-                <div>
-                  <span className="label-micro block mb-1 text-muted-foreground">Task Specialist</span>
-                  <div className="flex flex-wrap gap-1 bg-[#121212] p-1 rounded-md border border-border text-xs">
-                    {(
-                      [
-                        { id: "auto", label: "Auto Classifier" },
-                        { id: "vqa", label: "Optical VQA" },
-                        { id: "grounding", label: "Grounding" },
-                        { id: "change", label: "Change VQA" },
-                        { id: "sar_fusion", label: "SAR Fusion" },
-                      ] as { id: TaskHint; label: string }[]
-                    ).map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => setTaskHint(t.id)}
-                        className={cn(
-                          "px-2.5 py-1 rounded font-medium transition-all whitespace-nowrap text-xs",
-                          taskHint === t.id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {t.label}
-                      </button>
-                    ))}
+            {/* Upload panel */}
+            {inputMode === "upload" && (
+              <div className="p-4 space-y-3">
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  multiple
+                  accept=".tif,.tiff,.png,.jpg,.jpeg"
+                  className="hidden"
+                />
+                {uploadedFiles.length === 0 ? (
+                  <div
+                    className="rounded-lg border-2 border-dashed border-border hover:border-primary/50 bg-[#0d0d0d] p-6 flex flex-col items-center gap-3 cursor-pointer group transition-colors duration-200"
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const files = Array.from(e.dataTransfer.files).filter((f) =>
+                        /\.(tif|tiff|png|jpg|jpeg)$/i.test(f.name)
+                      );
+                      if (files.length > 0) {
+                        setUploadedFiles((prev) => [...prev, ...files].slice(0, 4));
+                        setError(null);
+                      }
+                    }}
+                  >
+                    <div className="h-10 w-10 rounded-full border border-border bg-card/60 flex items-center justify-center text-muted-foreground group-hover:border-primary/40 group-hover:text-primary/70 transition-colors">
+                      <Upload className="h-5 w-5" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-semibold text-foreground">Drop a GeoTIFF or image here</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">or click to browse — .tif, .tiff, .jpg, .png</p>
+                    </div>
+                    {temporal === "bi-temporal" && currentScenario && (
+                      <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-accent/10 border border-accent/30 text-accent text-xs font-medium">
+                        <ScanSearch className="h-3.5 w-3.5 shrink-0" />
+                        Scenario configured: {currentScenario.title}
+                      </div>
+                    )}
+                    {temporal === "bi-temporal" && !currentScenario && (
+                      <p className="text-[11px] font-mono text-muted-foreground/50">
+                        No scenario selected — use the Advanced settings below to configure
+                      </p>
+                    )}
                   </div>
-                </div>
-
-                {/* Modality Selector */}
-                <div>
-                  <span className="label-micro block mb-1 text-muted-foreground">Modality</span>
-                  <div className="flex flex-wrap gap-1 bg-[#121212] p-1 rounded-md border border-border text-xs">
-                    {(["optical", "sar", "both"] as Modality[]).map((m) => (
-                      <button
-                        key={m}
-                        type="button"
-                        onClick={() => { setModality(m); clearWorkspace(); }}
-                        className={cn(
-                          "px-3 py-1 rounded font-medium capitalize transition-all whitespace-nowrap text-xs",
-                          modality === m ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {m === "both" ? "Optical + SAR" : m}
-                      </button>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="label-micro text-muted-foreground">Staged ({uploadedFiles.length}):</span>
+                    {uploadedFiles.map((file, idx) => (
+                      <div key={idx} className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#181818] border border-primary/30 text-xs text-foreground">
+                        <FileImage className="h-3.5 w-3.5 text-primary" />
+                        <span className="truncate max-w-[140px] font-mono">{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFile(idx)}
+                          className="text-muted-foreground hover:text-destructive transition-colors ml-1"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     ))}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="text-[11px] px-2.5 py-1 rounded-md border border-dashed border-border text-muted-foreground hover:border-primary/40 hover:text-foreground transition-all"
+                    >
+                      + Add
+                    </button>
                   </div>
-                </div>
+                )}
+              </div>
+            )}
 
-                {/* Temporal Selector */}
-                <div>
-                  <span className="label-micro block mb-1 text-muted-foreground">Temporal Mode</span>
-                  <div className="flex flex-wrap gap-1 bg-[#121212] p-1 rounded-md border border-border text-xs">
-                    {(["single", "bi-temporal"] as Temporal[]).map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        onClick={() => {
-                          setTemporal(t);
-                          clearWorkspace();
-                          if (t === "single") setScenarioId(null);
-                        }}
-                        className={cn(
-                          "px-3 py-1 rounded font-medium capitalize transition-all whitespace-nowrap text-xs",
-                          temporal === t ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                        )}
-                      >
-                        {t === "bi-temporal" ? "Bi-Temporal Pair" : "Single Image"}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Scenario Selector (Bi-temporal mode) */}
-                {temporal === "bi-temporal" && (
+            {/* Location panel */}
+            {inputMode === "location" && (
+              <div className="p-4 space-y-3">
+                <p className="text-xs text-muted-foreground flex items-center gap-2">
+                  <Globe2 className="h-3.5 w-3.5 text-primary" />
+                  Click the map to pick a point, or enter coordinates manually.
+                </p>
+                <LocationPickerMap lat={locationLat} lon={locationLon} onPick={handleLocationPick} />
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <span className="label-micro block mb-1 text-muted-foreground">Scenario Preset</span>
-                    <div className="flex bg-[#121212] p-1 rounded-md border border-border text-xs">
+                    <label className="label-micro block mb-1 text-muted-foreground">Latitude</label>
+                    <input
+                      type="number" step="any" min="-90" max="90"
+                      placeholder="e.g. -10.5432"
+                      value={locationLatStr}
+                      onChange={(e) => syncLatInput(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground">Longitude</label>
+                    <input
+                      type="number" step="any" min="-180" max="180"
+                      placeholder="e.g. -62.3141"
+                      value={locationLonStr}
+                      onChange={(e) => syncLonInput(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+                    />
+                  </div>
+                </div>
+                {locationLat !== null && locationLon !== null && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/25 text-primary text-xs font-mono w-fit">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {locationLat.toFixed(4)}°, {locationLon!.toFixed(4)}°
+                    <span className="text-muted-foreground ml-2">· {satCollection}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 4 ▸ Collapsible Advanced Options */}
+          <div className="rounded-lg border border-border/60 bg-[#0d0d0d] overflow-hidden">
+            <button
+              type="button"
+              id="advanced-options-toggle"
+              onClick={() => setShowAdvanced((prev) => !prev)}
+              className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-muted-foreground hover:text-foreground hover:bg-white/[0.02] transition-colors select-none"
+            >
+              <div className="flex items-center gap-2 font-medium">
+                <SlidersHorizontal className="h-3.5 w-3.5 text-primary/70" />
+                <span>Advanced Options</span>
+                {activeOverrides.length > 0 && !showAdvanced && (
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-primary/10 border border-primary/30 text-primary">
+                    {activeOverrides.length} override{activeOverrides.length > 1 ? "s" : ""} active
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5 text-muted-foreground/70 text-[11px]">
+                <span>{showAdvanced ? "Hide" : "Configure"}</span>
+                {showAdvanced ? (
+                  <ChevronUp className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+              </div>
+            </button>
+
+            {showAdvanced && (
+              <div className="p-4 border-t border-border/40 space-y-4 bg-[#101010]/50 animate-in fade-in-50 duration-150">
+                {/* Row 1: Task Specialist & Modality & Temporal */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Task Specialist Override */}
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground">Task Specialist Override</label>
+                    <div className="flex flex-wrap gap-1 bg-[#121212] p-1 rounded-md border border-border text-xs">
+                      {(
+                        [
+                          { id: "auto", label: "Auto Classifier" },
+                          { id: "vqa", label: "Optical VQA" },
+                          { id: "grounding", label: "Grounding" },
+                          { id: "change", label: "Change VQA" },
+                          { id: "sar_fusion", label: "SAR Fusion" },
+                        ] as { id: TaskHint; label: string }[]
+                      ).map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => setTaskHint(t.id)}
+                          className={cn(
+                            "px-2.5 py-1 rounded font-medium transition-all whitespace-nowrap text-xs",
+                            taskHint === t.id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          {t.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Modality */}
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground">Modality</label>
+                    <div className="flex flex-wrap gap-1 bg-[#121212] p-1 rounded-md border border-border text-xs">
+                      {(["optical", "sar", "both"] as Modality[]).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => { setModality(m); clearWorkspace(); }}
+                          className={cn(
+                            "px-3 py-1 rounded font-medium capitalize transition-all whitespace-nowrap text-xs",
+                            modality === m ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          {m === "both" ? "Optical + SAR" : m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Temporal Mode */}
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground">Temporal Mode</label>
+                    <div className="flex flex-wrap gap-1 bg-[#121212] p-1 rounded-md border border-border text-xs">
+                      {(["single", "bi-temporal"] as Temporal[]).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => {
+                            setTemporal(t);
+                            clearWorkspace();
+                            if (t === "single") setScenarioId(null);
+                          }}
+                          className={cn(
+                            "px-3 py-1 rounded font-medium capitalize transition-all whitespace-nowrap text-xs",
+                            temporal === t ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                          )}
+                        >
+                          {t === "bi-temporal" ? "Bi-Temporal Pair" : "Single Image"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Row 2: Satellite Collection & Date Range Filter */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-border/30">
+                  {/* Collection selector */}
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground flex items-center gap-1">
+                      <Satellite className="h-3 w-3" /> Satellite Collection
+                    </label>
+                    <select
+                      value={satCollection}
+                      onChange={(e) => setSatCollection(e.target.value as SatCollection)}
+                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="sentinel-2-l2a">Sentinel-2 L2A</option>
+                      <option value="sentinel-1-grd">Sentinel-1 GRD (SAR)</option>
+                      <option value="landsat-c2-l2">Landsat C2 L2</option>
+                    </select>
+                  </div>
+
+                  {/* Start Date */}
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground flex items-center gap-1">
+                      <Calendar className="h-3 w-3" /> Start Date
+                    </label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+
+                  {/* End Date */}
+                  <div>
+                    <label className="label-micro block mb-1 text-muted-foreground flex items-center gap-1">
+                      <Calendar className="h-3 w-3" /> End Date
+                    </label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+
+                {/* Scenario Preset Selector (when bi-temporal is active) */}
+                {temporal === "bi-temporal" && (
+                  <div className="pt-2 border-t border-border/30">
+                    <span className="label-micro block mb-1 text-muted-foreground">Scenario Preset Pair</span>
+                    <div className="flex flex-wrap gap-1.5 bg-[#121212] p-1 rounded-md border border-border text-xs w-fit">
                       {(Object.keys(SCENARIOS) as ScenarioId[]).map((id) => (
                         <button
                           key={id}
@@ -788,162 +1035,47 @@ export default function Analyze() {
                   </div>
                 )}
               </div>
+            )}
+          </div>
 
-              {/* Upload Button Trigger & Submit CTA */}
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                {inputMode === "upload" && (
-                  <>
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileChange}
-                      multiple
-                      accept=".tif,.tiff,.png,.jpg,.jpeg"
-                      className="hidden"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="lg"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="border-border bg-[#121212] hover:border-primary w-full sm:w-auto"
+          {/* 5 ▸ Single Analyze CTA with Active Overrides Indicator */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              {activeOverrides.length > 0 ? (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {activeOverrides.map((override, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center text-[11px] font-mono px-2.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-400"
                     >
-                      <Upload className="mr-2 h-4 w-4" />
-                      Upload GeoTIFF / Image
-                    </Button>
-                  </>
-                )}
-
-                <Button
-                  size="lg"
-                  disabled={isRunning || !query.trim()}
-                  onClick={handleRunAnalysis}
-                  className={cn(
-                    "shadow-lg min-w-[160px] w-full sm:w-auto transition-opacity",
-                    isRunning ? "opacity-60 cursor-not-allowed" : "hover:shadow-primary/20"
-                  )}
-                >
-                  {isRunning ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Play className="mr-2 h-4 w-4" />
-                  )}
-                  {isRunning ? "Running..." : "Run SatQuery AI"}
-                </Button>
-              </div>
+                      {override.startsWith("Specialist: ") ? `Manual: ${override.replace("Specialist: ", "")}` : override}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <span className="text-[11px] text-muted-foreground/50 font-mono">
+                  Specialist: Auto Classifier
+                </span>
+              )}
             </div>
 
-            {/* Location query inputs */}
-            {inputMode === "location" && (
-              <div className="pt-4 border-t border-border/40 space-y-4">
-                <p className="text-xs text-muted-foreground flex items-center gap-2">
-                  <Globe2 className="h-3.5 w-3.5 text-primary" />
-                  Click the map to pick a point, or enter coordinates manually. The backend will find the best matching catalogued satellite scene and run inference on it.
-                </p>
-
-                {/* Mini map */}
-                <LocationPickerMap lat={locationLat} lon={locationLon} onPick={handleLocationPick} />
-
-                {/* Coordinate inputs */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="label-micro block mb-1 text-muted-foreground">Latitude</label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="-90"
-                      max="90"
-                      placeholder="e.g. -10.5432"
-                      value={locationLatStr}
-                      onChange={(e) => syncLatInput(e.target.value)}
-                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="label-micro block mb-1 text-muted-foreground">Longitude</label>
-                    <input
-                      type="number"
-                      step="any"
-                      min="-180"
-                      max="180"
-                      placeholder="e.g. -62.3141"
-                      value={locationLonStr}
-                      onChange={(e) => syncLonInput(e.target.value)}
-                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* Date range + collection */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="label-micro block mb-1 text-muted-foreground flex items-center gap-1">
-                      <Calendar className="h-3 w-3" /> Start Date
-                    </label>
-                    <input
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
-                  </div>
-                  <div>
-                    <label className="label-micro block mb-1 text-muted-foreground flex items-center gap-1">
-                      <Calendar className="h-3 w-3" /> End Date
-                    </label>
-                    <input
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
-                  </div>
-                  <div>
-                    <label className="label-micro block mb-1 text-muted-foreground flex items-center gap-1">
-                      <Satellite className="h-3 w-3" /> Collection
-                    </label>
-                    <select
-                      value={satCollection}
-                      onChange={(e) => setSatCollection(e.target.value as SatCollection)}
-                      className="w-full rounded-lg border border-border bg-[#121212] px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                    >
-                      <option value="sentinel-2-l2a">Sentinel-2 L2A</option>
-                      <option value="sentinel-1-grd">Sentinel-1 GRD (SAR)</option>
-                      <option value="landsat-c2-l2">Landsat C2 L2</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Live coord badge */}
-                {locationLat !== null && locationLon !== null && (
-                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/25 text-primary text-xs font-mono w-fit">
-                    <MapPin className="h-3.5 w-3.5" />
-                    {locationLat.toFixed(4)}°, {locationLon.toFixed(4)}°
-                    <span className="text-muted-foreground ml-2">· {satCollection}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Custom Uploaded Files Bar */}
-            {inputMode === "upload" && uploadedFiles.length > 0 && (
-              <div className="pt-3 border-t border-border/40 flex flex-wrap items-center gap-3">
-                <span className="label-micro text-muted-foreground">Uploaded Files ({uploadedFiles.length}):</span>
-                {uploadedFiles.map((file, idx) => (
-                  <div key={idx} className="flex items-center gap-2 px-2.5 py-1 rounded-md bg-[#181818] border border-primary/30 text-xs text-foreground">
-                    <FileImage className="h-3.5 w-3.5 text-primary" />
-                    <span className="truncate max-w-[140px] font-mono">{file.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveFile(idx)}
-                      className="text-muted-foreground hover:text-destructive transition-colors ml-1"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
+            <Button
+              id="analyze-btn"
+              size="lg"
+              disabled={isRunning || !query.trim()}
+              onClick={handleRunAnalysis}
+              className={cn(
+                "shadow-lg min-w-[140px] transition-opacity",
+                isRunning ? "opacity-60 cursor-not-allowed" : "hover:shadow-primary/20"
+              )}
+            >
+              {isRunning ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="mr-2 h-4 w-4" />
+              )}
+              {isRunning ? "Running\u2026" : "Analyze"}
+            </Button>
           </div>
         </div>
 
@@ -1221,43 +1353,113 @@ export default function Analyze() {
               </div>
             </div>
 
+            {/* Data Warnings Banner — shown when STAC fetch partially or fully failed */}
+            {result?.data_warnings && result.data_warnings.length > 0 && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 shadow-xl">
+                <div className="flex items-start gap-3">
+                  <svg className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                  </svg>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-amber-400 mb-1">Satellite Data Fetch Warning</p>
+                    <ul className="space-y-1">
+                      {result.data_warnings.map((w, i) => (
+                        <li key={i} className="text-xs text-amber-300/80 font-mono leading-snug break-words">{w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Deterministic Metrics Panel — shown only when computed_metrics is present */}
             {result?.computed_metrics && (
               <ComputedMetricsPanel metrics={result.computed_metrics} />
             )}
 
-            {/* Auditable Execution Trace Card */}
-            <div className="rounded-xl border border-border bg-[#0E0E0E] p-6 shadow-xl">
-              <div className="flex items-center justify-between border-b border-border/60 pb-3 mb-4">
-                <span className="label-micro text-muted-foreground flex items-center gap-2">
-                  <Terminal className="h-4 w-4 text-accent" /> AUDITABLE EXECUTION TRACE
-                </span>
-                <span className="text-xs font-mono text-accent">PS-COMPLIANT</span>
-              </div>
-
-              {result?.execution_trace ? (
-                <div className="space-y-3 text-xs font-mono">
-                  <div className="p-3 rounded-lg bg-[#141414] border border-border/60 space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Task Classified:</span>
-                      <span className="text-primary font-bold">{result.execution_trace.task}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Specialist Used:</span>
-                      <span className="text-foreground">{result.execution_trace.specialist_used}</span>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-lg bg-[#141414] border border-border/60">
-                    <p className="text-muted-foreground mb-1.5">Parameters:</p>
-                    <pre className="text-[11px] text-accent/90 overflow-x-auto">
-                      {JSON.stringify(result.execution_trace.parameters, null, 2)}
-                    </pre>
+            {/* Auditable Execution Trace Card — Collapsible with auto-expand on warnings */}
+            <div className="rounded-xl border border-border bg-[#0E0E0E] shadow-xl overflow-hidden">
+              <button
+                type="button"
+                id="execution-trace-toggle"
+                onClick={() => setShowTrace((prev) => !prev)}
+                className="w-full flex items-center justify-between p-5 text-left hover:bg-white/[0.02] transition-colors select-none"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Terminal className="h-4 w-4 text-accent shrink-0" />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="label-micro text-muted-foreground">AUDITABLE EXECUTION TRACE</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/10 border border-accent/25 text-accent">
+                      PS-COMPLIANT
+                    </span>
+                    {result?.data_source && (
+                      <span className={cn(
+                        "text-[10px] font-mono px-1.5 py-0.5 rounded border",
+                        result.data_source === "cached_catalog"
+                          ? "bg-primary/10 border-primary/30 text-primary"
+                          : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                      )}>
+                        {result.data_source === "cached_catalog" ? "CACHED CATALOG" : "LIVE FALLBACK"}
+                      </span>
+                    )}
                   </div>
                 </div>
-              ) : (
-                <div className="py-6 text-center text-xs text-muted-foreground/60 font-mono">
-                  Execution trace telemetry will populate upon query completion.
+
+                <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground shrink-0 ml-2">
+                  {result?.execution_trace && !showTrace && (
+                    <span className="text-[11px] text-primary hidden sm:inline">
+                      {result.execution_trace.task}
+                    </span>
+                  )}
+                  <span className="text-[11px] hover:text-foreground">
+                    {showTrace ? "Hide trace" : "Show trace"}
+                  </span>
+                  {showTrace ? (
+                    <ChevronUp className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  )}
+                </div>
+              </button>
+
+              {showTrace && (
+                <div className="px-5 pb-5 pt-1 border-t border-border/50 animate-in fade-in-50 duration-150">
+                  {result?.execution_trace ? (
+                    <div className="space-y-3 text-xs font-mono pt-3">
+                      <div className="p-3 rounded-lg bg-[#141414] border border-border/60 space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Task Classified:</span>
+                          <span className="text-primary font-bold">{result.execution_trace.task}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Specialist Used:</span>
+                          <span className="text-foreground">{result.execution_trace.specialist_used}</span>
+                        </div>
+                        {result.data_source && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Data Origin:</span>
+                            <span className={cn(
+                              "font-semibold",
+                              result.data_source === "cached_catalog" ? "text-primary" : "text-amber-400"
+                            )}>
+                              {result.data_source}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="p-3 rounded-lg bg-[#141414] border border-border/60">
+                        <p className="text-muted-foreground mb-1.5">Parameters:</p>
+                        <pre className="text-[11px] text-accent/90 overflow-x-auto">
+                          {JSON.stringify(result.execution_trace.parameters, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-6 text-center text-xs text-muted-foreground/60 font-mono">
+                      Execution trace telemetry will populate upon query completion.
+                    </div>
+                  )}
                 </div>
               )}
             </div>

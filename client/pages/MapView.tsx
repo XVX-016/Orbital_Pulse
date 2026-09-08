@@ -856,8 +856,9 @@ function MapViewContent() {
         attributionControl: false,
       });
 
-      L.tileLayer("https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png", {
-        maxZoom: 20,
+      L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", {
+        maxZoom: 16,
+        attribution: "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ",
       }).addTo(map);
 
       // Separate layer groups for independent toggling
@@ -1548,8 +1549,8 @@ function MapViewContent() {
           </div>
 
           {/* Leaflet attribution overlay */}
-          <div className="absolute bottom-2 right-2 z-10 text-[9px] text-zinc-400 bg-zinc-950 border border-zinc-800 px-2 py-0.5 rounded pointer-events-none">
-            © Stadia Maps · OpenMapTiles · Earth Search STAC (AWS Element84)
+          <div className="absolute bottom-2 right-2 z-10 text-[9px] text-zinc-400 bg-zinc-950/80 backdrop-blur-sm border border-zinc-800 px-2 py-0.5 rounded pointer-events-none">
+            &copy; Esri &middot; DeLorme &middot; Earth Search STAC (AWS Element84)
           </div>
         </div>
 

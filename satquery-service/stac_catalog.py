@@ -47,6 +47,7 @@ DEFAULT_ROIS: List[Dict[str, Any]] = [
         "bbox": [-62.2, -10.2, -61.8, -9.8],  # Ji-Paraná / Ariquemes corridor
         "collections": ["sentinel-2-l2a", "landsat-c2-l2"],
         "scenario_dir": "deforestation",       # maps to data/deforestation/
+        "skip_materialization": True,          # Hand-verified multi-band scenario data preserved
     },
     {
         "name": "California_Wildfire",
@@ -128,6 +129,100 @@ def fetch_stac_scenes(
     except Exception as e:
         logger.warning(f"STAC fetch failed: {e}")
         return []
+
+
+def fetch_live_scene_for_point(
+    lon: float,
+    lat: float,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    collection: Optional[str] = None,
+    delta: float = 0.15,
+    limit: int = 10,
+) -> Optional[Dict[str, Any]]:
+    """On-demand Earth Search STAC query for a single geographic point.
+
+    Used as a live fallback when ``find_scene_by_location()`` returns no match,
+    allowing any global coordinate to be served without pre-catalogued coverage.
+
+    Reuses ``fetch_stac_scenes()`` internally — no logic is duplicated.
+
+    Args:
+        lon, lat:    WGS-84 coordinate of the point of interest.
+        start_date:  ISO-8601 lower bound for scene datetime (optional, not yet
+                     forwarded to STAC but reserved for future date filtering).
+        end_date:    ISO-8601 upper bound for scene datetime (optional).
+        collection:  Preferred STAC collection; if None, tries sentinel-2-l2a
+                     then sentinel-1-grd then landsat-c2-l2 in order.
+        delta:       Half-width of the bounding box in degrees (default 0.15°,
+                     ≈ 16 km at the equator — tight enough to avoid selecting a
+                     scene from a distant adjacent tile).
+        limit:       Maximum number of candidate items to request from STAC.
+
+    Returns:
+        A scene dict compatible with ``fetch_scene_cog_data()``, or ``None`` if
+        no suitable scene was found.  Includes the raw STAC item under key
+        ``stac_item`` for callers that need extra asset links.
+    """
+    bbox = [lon - delta, lat - delta, lon + delta, lat + delta]
+    collections = (
+        [collection]
+        if collection
+        else ["sentinel-2-l2a", "sentinel-1-grd", "landsat-c2-l2"]
+    )
+
+    logger.info(
+        "fetch_live_scene_for_point: querying STAC for (%.4f, %.4f) bbox=%s collections=%s",
+        lon, lat, bbox, collections,
+    )
+
+    items = fetch_stac_scenes(collections=collections, bbox=bbox, limit=limit)
+    if not items:
+        logger.info(
+            "fetch_live_scene_for_point: no scenes within ±%.2f° of (%.4f, %.4f) "
+            "for collections %s",
+            delta, lon, lat, collections,
+        )
+        return None
+
+    # Pick the scene with the lowest cloud cover; fall back to first (most recent,
+    # since Earth Search returns items newest-first).
+    def _cloud_key(item: Dict[str, Any]) -> float:
+        cc = item.get("properties", {}).get("eo:cloud_cover")
+        try:
+            return float(cc) if cc is not None else 100.0
+        except (TypeError, ValueError):
+            return 100.0
+
+    best = min(items, key=_cloud_key)
+    props = best.get("properties", {})
+    dt_str = props.get("datetime") or props.get("start_datetime", "")
+    cc = _cloud_key(best)
+    item_collection = best.get("collection", "unknown")
+    scene_id = best.get("id", "live-stac-unknown")
+
+    # Resolve the STAC item self-link for fetch_scene_cog_data
+    stac_href: Optional[str] = next(
+        (lnk["href"] for lnk in best.get("links", []) if lnk.get("rel") == "self"),
+        None,
+    )
+
+    scene: Dict[str, Any] = {
+        "scene_id": scene_id,
+        "collection": item_collection,
+        "datetime": dt_str,
+        "cloud_cover": cc if cc < 100.0 else None,
+        "thumbnail_url": _extract_thumbnail(best),
+        "stac_href": stac_href,
+        "geometry": best.get("geometry"),
+        "stac_item": best,  # raw item kept for callers that need extra asset hrefs
+    }
+
+    logger.info(
+        "fetch_live_scene_for_point: selected scene %s (collection=%s, cloud=%.1f%%, dt=%s)",
+        scene_id, item_collection, cc, dt_str,
+    )
+    return scene
 
 
 def ingest_stac_pass() -> int:
@@ -248,6 +343,20 @@ def _write_geotiff_from_jpeg(jpeg_bytes: bytes, out_path: str, bbox: List[float]
         min_lon, min_lat, max_lon, max_lat = bbox
         transform = from_bounds(min_lon, min_lat, max_lon, max_lat, W, H)
 
+        # Safeguard: never overwrite an existing GeoTIFF with fewer bands
+        if os.path.exists(out_path):
+            try:
+                with rasterio.open(out_path) as existing_src:
+                    existing_bands = existing_src.count
+                    if existing_bands > bands:
+                        logger.warning(
+                            "Refusing to overwrite %s (%d bands) with lower-fidelity %d-band data",
+                            out_path, existing_bands, bands
+                        )
+                        return False
+            except Exception as read_err:
+                logger.debug("Could not check existing %s band count: %s", out_path, read_err)
+
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         with rasterio.open(
             out_path,
@@ -309,6 +418,15 @@ def fetch_bitemporal_pair_for_roi(
     scenario_dir = target_roi["scenario_dir"]
     roi_bbox = target_roi["bbox"]
     roi_name = target_roi["name"]
+
+    if target_roi.get("skip_materialization") or roi_name == "Amazon_Rondonia":
+        logger.info(
+            "fetch_bitemporal_pair_for_roi: skipping materialization for ROI '%s' "
+            "(hand-verified real multi-band scenario data is already preserved on disk).",
+            roi_name,
+        )
+        return False
+
     # Use the bbox centre as the lookup point for find_scene_by_location
     centre_lon = (roi_bbox[0] + roi_bbox[2]) / 2.0
     centre_lat = (roi_bbox[1] + roi_bbox[3]) / 2.0
@@ -496,7 +614,11 @@ async def stac_catalog_daemon() -> None:
             # look-up) and idempotent — it overwrites only when pixel data is
             # successfully fetched, so running it every cycle is safe.
             for roi in DEFAULT_ROIS:
-                if roi.get("scenario_dir"):
+                if (
+                    roi.get("scenario_dir")
+                    and not roi.get("skip_materialization")
+                    and roi.get("name") != "Amazon_Rondonia"
+                ):
                     try:
                         await loop.run_in_executor(
                             None,
@@ -535,6 +657,7 @@ def fetch_scene_cog_data(scene_row: Dict[str, Any]) -> Dict[str, Any]:
         "image_bytes": None,
         "ndvi_metrics": None,
         "source": "stac_preview",
+        "warnings": [],
     }
 
     stac_href = scene_row.get("stac_href")
@@ -545,7 +668,9 @@ def fetch_scene_cog_data(scene_row: Dict[str, Any]) -> Dict[str, Any]:
             with urllib.request.urlopen(req, timeout=15) as resp:
                 item_data = json.loads(resp.read().decode("utf-8"))
         except Exception as e:
-            logger.warning(f"Could not load STAC item json from {stac_href}: {e}")
+            msg = f"Could not load STAC item JSON from {stac_href}: {e}"
+            logger.warning(msg)
+            result["warnings"].append(msg)
 
     assets = item_data.get("assets", {}) if item_data else {}
 
@@ -590,7 +715,9 @@ def fetch_scene_cog_data(scene_row: Dict[str, Any]) -> Dict[str, Any]:
                             f"Computed genuine Sentinel-2 multi-band NDVI: mean={mean_ndvi:.4f}, veg={veg_pct:.1f}%"
                         )
             except Exception as e:
-                logger.warning(f"Failed to read real COG bands for NDVI: {e}")
+                msg = f"Failed to read real COG bands for NDVI: {e}"
+                logger.warning(msg)
+                result["warnings"].append(msg)
 
     # 2. Fetch the visual image bytes for VLM input (prioritise visual asset, fallback to thumbnail)
     visual_asset = assets.get("visual") or assets.get("rendered_preview")
@@ -612,7 +739,9 @@ def fetch_scene_cog_data(scene_row: Dict[str, Any]) -> Dict[str, Any]:
                     result["image_bytes"] = buf.getvalue()
                     logger.info(f"Loaded visual COG overview: {len(result['image_bytes']):,} bytes")
             except Exception as e:
-                logger.warning(f"Could not load visual COG overview directly, trying http stream: {e}")
+                msg = f"Could not load visual COG overview directly, falling back to thumbnail: {e}"
+                logger.warning(msg)
+                result["warnings"].append(msg)
 
     # Fallback to thumbnail URL if visual COG wasn't read
     if not result["image_bytes"]:
@@ -623,7 +752,9 @@ def fetch_scene_cog_data(scene_row: Dict[str, Any]) -> Dict[str, Any]:
                 with urllib.request.urlopen(req, timeout=25) as resp:
                     result["image_bytes"] = resp.read()
             except Exception as e:
-                logger.warning(f"Failed to fetch thumbnail_url {thumb_url}: {e}")
+                msg = f"Failed to fetch thumbnail_url {thumb_url}: {e}"
+                logger.warning(msg)
+                result["warnings"].append(msg)
 
     return result
 
