@@ -142,9 +142,12 @@ async def analyze_query(request: Request):
         raise HTTPException(status_code=400, detail="Query string is required.")
 
     custom_params: dict = {}
+    # Tracks which data path served the location query; surfaced in the response.
+    data_source: Optional[str] = None
 
     # Query by location: lookup matching catalogued scene and lazily fetch pixels
     matched_scene = None
+    data_warnings: list = []
     if lat is not None and lon is not None and not images_payload and not scenario:
         try:
             f_lat = float(lat)
@@ -157,7 +160,14 @@ async def analyze_query(request: Request):
                 collection=collection,
             )
             if matched_scene:
-                logger.info(f"Query by location: matched scene {matched_scene['scene_id']} ({matched_scene['collection']})")
+                logger.info(f"Query by location: matched scene {matched_scene['scene_id']} ({matched_scene['collection']}) [cached catalog]")
+                data_source = "cached_catalog"
+                custom_params["data_source_path"] = "cached_catalog"
+                data_warnings.append(
+                    f"Data source: pre-catalogued scene {matched_scene['scene_id']} "
+                    f"(collection={matched_scene['collection']}) — "
+                    "instant result from background-ingested catalog."
+                )
                 from stac_catalog import fetch_scene_cog_data
                 cog_data = fetch_scene_cog_data(matched_scene)
                 raw_bytes = cog_data.get("image_bytes")
@@ -179,9 +189,15 @@ async def analyze_query(request: Request):
                         b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
                         preview_base64_list.append(f"data:image/jpeg;base64,{b64_str}")
                     else:
-                        logger.warning(f"Query by location: load_image_robust returned None for scene {matched_scene['scene_id']}")
+                        warn = f"Image decode failed for scene {matched_scene['scene_id']} — fetched {len(raw_bytes):,} bytes but PIL could not decode"
+                        logger.warning(warn)
+                        data_warnings.append(warn)
                 else:
-                    logger.warning(f"Query by location: fetch_scene_cog_data returned no bytes for scene {matched_scene['scene_id']}")
+                    warn = f"No pixel data available for scene {matched_scene['scene_id']} (collection={matched_scene.get('collection')}): all fetch strategies failed"
+                    logger.warning(warn)
+                    data_warnings.append(warn)
+                # Propagate any per-step warnings from fetch_scene_cog_data
+                data_warnings.extend(cog_data.get("warnings") or [])
 
                 # Pass matched scene geometry and metadata into trace params
                 geom = matched_scene.get("geometry")
@@ -195,9 +211,111 @@ async def analyze_query(request: Request):
                 if matched_scene.get("thumbnail_url"):
                     custom_params["catalog_thumbnail_url"] = matched_scene["thumbnail_url"]
             else:
-                logger.warning(f"Query by location: no catalogued scene found covering ({f_lon}, {f_lat})")
+                # ── Live STAC fallback ────────────────────────────────────────────
+                # No pre-catalogued scene covers this point. Delegate to
+                # fetch_live_scene_for_point() in stac_catalog.py — all bbox
+                # construction, cloud-cover ranking, and scene-dict assembly live
+                # there; nothing is duplicated here.
+                logger.info(
+                    "No cached scene for (%.4f, %.4f) — attempting live Earth Search STAC fallback",
+                    f_lon, f_lat,
+                )
+                data_warnings.append(
+                    f"No pre-catalogued scene found for ({f_lon:.4f}, {f_lat:.4f}). "
+                    "Falling back to a live Earth Search STAC query — expect higher latency "
+                    "than results from the pre-warmed catalog regions."
+                )
+                try:
+                    from stac_catalog import fetch_live_scene_for_point, fetch_scene_cog_data
+
+                    _live_scene = fetch_live_scene_for_point(
+                        lon=f_lon,
+                        lat=f_lat,
+                        start_date=start_date,
+                        end_date=end_date,
+                        collection=collection,
+                    )
+
+                    if _live_scene:
+                        _scene_id = _live_scene["scene_id"]
+                        _item_collection = _live_scene["collection"]
+                        _dt_str = _live_scene.get("datetime", "")
+                        _cc = _live_scene.get("cloud_cover") or 100.0
+
+                        _cog_data = fetch_scene_cog_data(_live_scene)
+                        _raw_bytes = _cog_data.get("image_bytes")
+                        if _cog_data.get("ndvi_metrics"):
+                            custom_params["stac_cog_metrics"] = _cog_data["ndvi_metrics"]
+
+                        if _raw_bytes:
+                            _scene_img = load_image_robust(_raw_bytes)
+                            if _scene_img:
+                                images_payload.append(_scene_img)
+                                temporal = "single"
+                                _buf = io.BytesIO()
+                                _scene_img.save(_buf, format="JPEG", quality=85)
+                                preview_base64_list.append(
+                                    "data:image/jpeg;base64,"
+                                    + base64.b64encode(_buf.getvalue()).decode("utf-8")
+                                )
+                                logger.info(
+                                    "Live STAC fallback: decoded image %s mode=%s",
+                                    _scene_img.size, _scene_img.mode,
+                                )
+                            else:
+                                data_warnings.append(
+                                    f"Live STAC fallback: image decode failed for scene {_scene_id} "
+                                    f"— fetched {len(_raw_bytes):,} bytes but PIL could not decode."
+                                )
+                        else:
+                            data_warnings.append(
+                                f"Live STAC fallback: no pixel data available for scene {_scene_id} "
+                                f"(collection={_item_collection}) — all fetch strategies failed."
+                            )
+
+                        data_warnings.extend(_cog_data.get("warnings") or [])
+
+                        # Surface scene provenance in the trace params and top-level response
+                        data_source = "live_fallback"
+                        custom_params["data_source_path"] = "live_stac_fallback"
+                        custom_params["catalog_scene_id"] = _scene_id
+                        custom_params["catalog_collection"] = _item_collection
+                        if _live_scene.get("thumbnail_url"):
+                            custom_params["catalog_thumbnail_url"] = _live_scene["thumbnail_url"]
+                        _geom = _live_scene.get("geometry")
+                        if _geom and _geom.get("type") == "Polygon":
+                            _coords = _geom.get("coordinates", [[]])[0]
+                            if len(_coords) >= 4:
+                                _pts = ", ".join(f"{c[0]} {c[1]}" for c in _coords)
+                                custom_params["scene_geometry_wkt"] = f"POLYGON(({_pts}))"
+
+                        data_warnings.append(
+                            f"Live STAC fallback succeeded: scene {_scene_id} "
+                            f"(collection={_item_collection}, cloud_cover={_cc:.1f}%, "
+                            f"datetime={_dt_str}). "
+                            "Results were fetched on-demand; pre-cataloguing this region "
+                            "would eliminate this latency."
+                        )
+                    else:
+                        warn = (
+                            f"Live STAC fallback found no scenes within ±0.15° of "
+                            f"({f_lon:.4f}, {f_lat:.4f}). "
+                            "The requested location may have no recent satellite coverage."
+                        )
+                        logger.warning(warn)
+                        data_warnings.append(warn)
+                        custom_params["data_source_path"] = "live_stac_fallback_empty"
+
+                except Exception as live_err:
+                    warn = f"Live STAC fallback failed: {live_err}"
+                    logger.warning(warn, exc_info=True)
+                    data_warnings.append(warn)
+                    custom_params["data_source_path"] = "live_stac_fallback_error"
+
         except Exception as loc_err:
-            logger.warning(f"Failed to lookup or fetch scene by location: {loc_err}", exc_info=True)
+            warn = f"Location-based scene lookup/fetch failed: {loc_err}"
+            logger.warning(warn, exc_info=True)
+            data_warnings.append(warn)
 
     # If scenario specified, load bi-temporal pair for change detection / change-VQA
     if scenario:
@@ -243,6 +361,17 @@ async def analyze_query(request: Request):
     if isinstance(response, dict) and preview_base64_list:
         response["preview_images_base64"] = preview_base64_list
         response["preview_image_base64"] = preview_base64_list[0]
+
+    # Surface data_source as a top-level field so the frontend and execution
+    # traces can read it without parsing execution_trace.parameters.
+    # Values: "cached_catalog" | "live_fallback" | absent (non-location query).
+    if data_source:
+        response["data_source"] = data_source
+
+    # Surface any STAC fetch warnings to the caller so they appear in the frontend
+    if data_warnings:
+        response["data_warnings"] = data_warnings
+        logger.warning("Returning %d data warning(s) in API response: %s", len(data_warnings), data_warnings)
 
     # ── Non-blocking DB persist ──────────────────────────────────────────────
     # Fire-and-forget: submit to the thread pool and do NOT await the result.
