@@ -119,72 +119,86 @@ export default function About() {
           </p>
         </section>
 
-        {/* Section 1.5: Core SatQuery AI Capabilities */}
-        <section className="border-t border-white/10 pt-12">
-          <div className="mb-8">
-            <p className="label-micro mb-2">AI Capabilities</p>
-            <h2 className="text-subhead font-semibold text-foreground">SatQuery AI Agentic Specialists</h2>
+        {/* Section 1.5: Core SatQuery AI Capabilities with bg.jpeg background */}
+        <section className="relative overflow-hidden rounded-2xl border border-white/10 p-6 sm:p-8 md:p-10 my-12 shadow-2xl">
+          {/* Background Image using bg.jpeg */}
+          <div className="absolute inset-0 z-0">
+            <img
+              src="/bg.jpeg"
+              alt="SatQuery AI Satellite Background"
+              className="h-full w-full object-cover object-center"
+            />
+            {/* Subtle vignette and glass overlay so background satellite is visible while cards have crisp contrast */}
+            <div className="absolute inset-0 bg-gradient-to-b from-[#0A0A0A]/85 via-black/40 to-[#0A0A0A]/85" />
+            <div className="absolute inset-0 bg-black/25" />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818]">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/20 text-primary">
-                  <Sparkles className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-foreground text-sm">Visual QA</h3>
-                  <p className="text-[11px] text-muted-foreground">Remote Sensing VQA</p>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Zero-shot visual question answering over optical satellite imagery powered by 4-bit GeoChat-7B.
-              </p>
+          <div className="relative z-10">
+            <div className="mb-8">
+              <p className="label-micro mb-2 text-primary-foreground/90 font-semibold tracking-wider">AI Capabilities</p>
+              <h2 className="text-subhead font-semibold text-foreground">SatQuery AI Agentic Specialists</h2>
             </div>
 
-            <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818]">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent/20 text-accent">
-                  <ScanSearch className="h-4 w-4" />
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-xl border border-white/15 bg-black/65 p-5 backdrop-blur-md transition-all duration-200 hover:border-primary/50 hover:bg-black/80 shadow-lg">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/20 text-primary">
+                    <Sparkles className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-foreground text-sm">Visual QA</h3>
+                    <p className="text-[11px] text-muted-foreground">Remote Sensing VQA</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-foreground text-sm">Spatial Grounding</h3>
-                  <p className="text-[11px] text-muted-foreground">Object Localization</p>
-                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Zero-shot visual question answering over optical satellite imagery powered by 4-bit GeoChat-7B.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Detects and highlights infrastructure, buildings, and natural features with normalized bounding box coordinates.
-              </p>
-            </div>
 
-            <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818]">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/20 text-emerald-400">
-                  <ArrowRightLeft className="h-4 w-4" />
+              <div className="rounded-xl border border-white/15 bg-black/65 p-5 backdrop-blur-md transition-all duration-200 hover:border-primary/50 hover:bg-black/80 shadow-lg">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-accent/20 text-accent">
+                    <ScanSearch className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-foreground text-sm">Spatial Grounding</h3>
+                    <p className="text-[11px] text-muted-foreground">Object Localization</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-foreground text-sm">Change VQA</h3>
-                  <p className="text-[11px] text-muted-foreground">Bi-Temporal Analysis</p>
-                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Detects and highlights infrastructure, buildings, and natural features with normalized bounding box coordinates.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Compares before/after imagery pairs to quantify deforestation, canopy loss, and disaster impact.
-              </p>
-            </div>
 
-            <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-all duration-200 hover:border-primary/50 hover:bg-[#181818]">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-500/20 text-blue-400">
-                  <Radio className="h-4 w-4" />
+              <div className="rounded-xl border border-white/15 bg-black/65 p-5 backdrop-blur-md transition-all duration-200 hover:border-primary/50 hover:bg-black/80 shadow-lg">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/20 text-emerald-400">
+                    <ArrowRightLeft className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-foreground text-sm">Change VQA</h3>
+                    <p className="text-[11px] text-muted-foreground">Bi-Temporal Analysis</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-foreground text-sm">SAR Fusion</h3>
-                  <p className="text-[11px] text-muted-foreground">Sentinel-1 Radar</p>
-                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Compares before/after imagery pairs to quantify deforestation, canopy loss, and disaster impact.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Fuses synthetic aperture radar (SAR) channels for cloud-penetrating, night-time flood inundation detection.
-              </p>
+
+              <div className="rounded-xl border border-white/15 bg-black/65 p-5 backdrop-blur-md transition-all duration-200 hover:border-primary/50 hover:bg-black/80 shadow-lg">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-blue-500/20 text-blue-400">
+                    <Radio className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-foreground text-sm">SAR Fusion</h3>
+                    <p className="text-[11px] text-muted-foreground">Sentinel-1 Radar</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Fuses synthetic aperture radar (SAR) channels for cloud-penetrating, night-time flood inundation detection.
+                </p>
+              </div>
             </div>
           </div>
         </section>
