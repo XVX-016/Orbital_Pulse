@@ -5,6 +5,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { normalizeGroundingBox } from "@/lib/grounding-boxes";
 
 const AI_SERVICE_URL = import.meta.env.VITE_AI_SERVICE_URL || "http://localhost:8082";
 
@@ -40,35 +41,49 @@ const SCENARIOS: Record<ScenarioId, Scenario> = {
   },
 };
 
+const SCENARIO_PROMPTS: Record<string, string> = {
+  deforestation: "Analyze forest cover loss, canopy reduction, and spectral vegetation changes between these scenes.",
+  grounding: "Please detect, locate, and ground all primary infrastructure, buildings, and structures in this view.",
+  sar_inundation: "Identify surface water expansion, flood boundaries, and inundated terrain using SAR backscatter analysis.",
+  optical_sar_fusion: "Fuse optical spectral channels with SAR radar signals to map land surface features despite atmospheric noise.",
+};
+
+// Keep demo imagery unobstructed; grounding coordinates remain available in API JSON.
+const SHOW_GROUNDING_OVERLAYS = false;
+
 const PRESET_QUERIES = [
   {
     label: "Deforestation Analysis",
-    query: "What deforestation or forest cover loss is visible in these before and after images?",
+    query: SCENARIO_PROMPTS.deforestation,
     modality: "optical" as Modality,
     temporal: "bi-temporal" as Temporal,
     taskHint: "change" as TaskHint,
     scenario: "deforestation" as ScenarioId,
+    scenarioPreset: "deforestation",
   },
   {
     label: "Building & Object Grounding",
-    query: "Please detect and ground all major infrastructure, buildings, or structures in this aerial view.",
+    query: SCENARIO_PROMPTS.grounding,
     modality: "optical" as Modality,
     temporal: "single" as Temporal,
     taskHint: "grounding" as TaskHint,
+    scenarioPreset: "grounding",
   },
   {
     label: "SAR Inundation Detection",
-    query: "Detect flood inundation boundaries and water body expansion using cloud-penetrating Sentinel-1 SAR imagery",
+    query: SCENARIO_PROMPTS.sar_inundation,
     modality: "sar" as Modality,
     temporal: "single" as Temporal,
     taskHint: "sar_fusion" as TaskHint,
+    scenarioPreset: "sar_inundation",
   },
   {
     label: "Optical–SAR Multimodal Fusion",
-    query: "Fuse optical multi-spectral bands with synthetic aperture radar channels to describe land cover despite cloud cover",
+    query: SCENARIO_PROMPTS.optical_sar_fusion,
     modality: "both" as Modality,
     temporal: "single" as Temporal,
     taskHint: "sar_fusion" as TaskHint,
+    scenarioPreset: "optical_sar_fusion",
   },
 ];
 
@@ -157,7 +172,7 @@ function MetricRow({ label, value, unit, highlight }: { label: string; value: st
   return (
     <div className="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0">
       <span className="text-[11px] text-muted-foreground">{label}</span>
-      <span className={`font-mono text-[12px] font-semibold ${highlight ? "text-amber-400" : "text-foreground"}`}>
+      <span className={`font-mono text-[12px] font-semibold ${highlight ? "text-primary" : "text-foreground"}`}>
         {typeof value === "number" ? value.toFixed(3) : value}{unit ? ` ${unit}` : ""}
       </span>
     </div>
@@ -170,7 +185,7 @@ function NdviBlock({ label, ndvi }: { label: string; ndvi: NdviResult }) {
 
   return (
     <div className="space-y-1">
-      <p className="text-[10px] font-semibold text-amber-400/80 uppercase tracking-wider flex items-center gap-1">
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
         <Leaf className="h-3 w-3" />{label}
       </p>
       <MetricRow label="Sparse Veg. (>0.2)" value={sparseVal} unit="%" />
@@ -186,7 +201,7 @@ function NdviBlock({ label, ndvi }: { label: string; ndvi: NdviResult }) {
 function LandcoverBlock({ label, lc }: { label: string; lc: LandcoverResult }) {
   return (
     <div className="space-y-1">
-      <p className="text-[10px] font-semibold text-amber-400/80 uppercase tracking-wider flex items-center gap-1">
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
         <Map className="h-3 w-3" />{label}
       </p>
       <MetricRow label="Dense Veg." value={lc.dense_vegetation_pct} unit="%" />
@@ -202,15 +217,15 @@ function ComputedMetricsPanel({ metrics }: { metrics: ComputedMetrics }) {
   const task = metrics.task;
 
   return (
-    <div className="rounded-xl border border-amber-500/25 bg-[#0f0d07] p-5 shadow-xl">
+    <div className="rounded-xl border border-border bg-card p-5 shadow-xl">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-amber-500/20 pb-3 mb-4">
-        <span className="label-micro text-amber-400/80 flex items-center gap-2">
-          <FlaskConical className="h-4 w-4 text-amber-400" /> DETERMINISTIC MEASUREMENTS
+      <div className="flex items-center justify-between border-b border-border/60 pb-3 mb-4">
+        <span className="label-micro text-muted-foreground flex items-center gap-2">
+          <FlaskConical className="h-4 w-4 text-primary" /> DETERMINISTIC MEASUREMENTS
         </span>
         <span
           title="Computed by geospatial_metrics.py — no LLM involved"
-          className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/25 text-amber-400 cursor-help"
+          className="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10 border border-primary/20 text-primary cursor-help"
         >
           {metrics.georeferenced ? "GEOREF ✓" : "NO GEOREF"}
         </span>
@@ -234,7 +249,7 @@ function ComputedMetricsPanel({ metrics }: { metrics: ComputedMetrics }) {
             {metrics.after_landcover && <LandcoverBlock label="After — Land Cover" lc={metrics.after_landcover} />}
             {metrics.spectral_change && (
               <div className="space-y-1">
-                <p className="text-[10px] font-semibold text-amber-400/80 uppercase tracking-wider flex items-center gap-1">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                   <BarChart2 className="h-3 w-3" />Spectral Change Area
                 </p>
                 <MetricRow label="Changed Surface" value={metrics.spectral_change.changed_pct} unit="%" highlight />
@@ -253,14 +268,14 @@ function ComputedMetricsPanel({ metrics }: { metrics: ComputedMetrics }) {
         {/* ── Grounding ── */}
         {task === "grounding" && metrics.object_areas && metrics.object_areas.length > 0 && (
           <div className="space-y-2">
-            <p className="text-[10px] font-semibold text-amber-400/80 uppercase tracking-wider flex items-center gap-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
               <Layers className="h-3 w-3" />Detected Object Areas
             </p>
             <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
               {metrics.object_areas.map((obj, i) => (
-                <div key={i} className="flex items-center justify-between p-2 rounded bg-[#1a1500] border border-amber-500/15 text-[11px]">
+                <div key={i} className="flex items-center justify-between p-2 rounded bg-[#141414] border border-border/60 text-[11px]">
                   <span className="text-foreground font-medium truncate max-w-[160px]">{obj.label}</span>
-                  <span className="font-mono text-amber-400 ml-2 shrink-0">
+                  <span className="font-mono text-primary ml-2 shrink-0">
                     {obj.area_km2 !== null
                       ? `${obj.area_km2.toFixed(4)} km²`
                       : obj.area_m2 !== null
@@ -423,6 +438,7 @@ export default function Analyze() {
   const [temporal, setTemporal] = useState<Temporal>("single");
   const [taskHint, setTaskHint] = useState<TaskHint>("auto");
   const [scenarioId, setScenarioId] = useState<ScenarioId | null>(null);
+  const [scenarioPreset, setScenarioPreset] = useState<string>("");
 
   // Input mode: upload or query-by-location
   const [inputMode, setInputMode] = useState<InputMode>("upload");
@@ -506,6 +522,11 @@ export default function Analyze() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  const handleScenarioClick = (scenarioKey: string) => {
+    setScenarioPreset(scenarioKey);
+    setQuery(SCENARIO_PROMPTS[scenarioKey] || "");
+  };
+
   const handleRunAnalysis = async () => {
     if (!query.trim()) return;
 
@@ -543,6 +564,7 @@ export default function Analyze() {
             start_date: startDate || undefined,
             end_date: endDate || undefined,
             collection: satCollection,
+            scenario_preset: scenarioPreset || undefined,
           }),
         });
       } else if (uploadedFiles.length > 0) {
@@ -551,6 +573,7 @@ export default function Analyze() {
         formData.append("query", finalQuery);
         formData.append("modality", modality);
         formData.append("temporal", temporal);
+        if (scenarioPreset) formData.append("scenario_preset", scenarioPreset);
         if (temporal === "bi-temporal" && scenarioId) {
           formData.append("scenario", scenarioId);
         }
@@ -572,6 +595,7 @@ export default function Analyze() {
             modality,
             temporal,
             scenario: temporal === "bi-temporal" && scenarioId ? scenarioId : undefined,
+            scenario_preset: scenarioPreset || undefined,
           }),
         });
       }
@@ -700,6 +724,7 @@ export default function Analyze() {
                     setTemporal(preset.temporal);
                     setTaskHint(preset.taskHint);
                     setScenarioId(preset.scenario ?? null);
+                    handleScenarioClick(preset.scenarioPreset);
                   }}
                   className="text-[11px] px-2.5 py-1 rounded-full border border-border/60 bg-transparent hover:bg-primary/10 hover:border-primary/40 text-muted-foreground hover:text-foreground transition-all duration-150"
                 >
@@ -1046,7 +1071,7 @@ export default function Analyze() {
                   {activeOverrides.map((override, i) => (
                     <span
                       key={i}
-                      className="inline-flex items-center text-[11px] font-mono px-2.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-400"
+                      className="inline-flex items-center text-[11px] font-mono px-2.5 py-0.5 rounded-md bg-sky-500/10 border border-sky-500/20 text-sky-400"
                     >
                       {override.startsWith("Specialist: ") ? `Manual: ${override.replace("Specialist: ", "")}` : override}
                     </span>
@@ -1142,8 +1167,10 @@ export default function Analyze() {
                     </div>
                   )}
                   {/* Render Bounding Boxes for Uploaded Image */}
-                  {result?.preview_image_base64 && groundingBoxes.map((box, idx) => {
-                    const [xmin, ymin, xmax, ymax] = box.box_normalized;
+                  {SHOW_GROUNDING_OVERLAYS && result?.preview_image_base64 && groundingBoxes.map((box, idx) => {
+                    const normalized = normalizeGroundingBox(box.box_normalized, "percent");
+                    if (!normalized) return null;
+                    const [xmin, ymin, xmax, ymax] = normalized;
                     return (
                       <div
                         key={idx}
@@ -1172,8 +1199,10 @@ export default function Analyze() {
                     className="max-h-full max-w-full object-contain"
                   />
                   {/* Render Bounding Boxes for Single Preview */}
-                  {groundingBoxes.map((box, idx) => {
-                    const [xmin, ymin, xmax, ymax] = box.box_normalized;
+                  {SHOW_GROUNDING_OVERLAYS && groundingBoxes.map((box, idx) => {
+                    const normalized = normalizeGroundingBox(box.box_normalized, "percent");
+                    if (!normalized) return null;
+                    const [xmin, ymin, xmax, ymax] = normalized;
                     return (
                       <div
                         key={idx}
@@ -1303,11 +1332,11 @@ export default function Analyze() {
                 ) : result ? (
                   <div className="space-y-4">
                     <p className="text-body text-foreground leading-relaxed font-medium">
-                      {result.answer}
+                      {result.answer.replace(/\*\*/g, "").replace(/\s+/g, " ").trim()}
                     </p>
 
                     {/* Render Visual Grounding Evidence List */}
-                    {groundingBoxes.length > 0 && (
+                    {SHOW_GROUNDING_OVERLAYS && groundingBoxes.length > 0 && (
                       <div className="pt-3 border-t border-border/40 space-y-2">
                         <span className="label-micro text-muted-foreground block flex items-center gap-1.5">
                           <Target className="h-3.5 w-3.5 text-red-400" /> Grounding Evidence ({groundingBoxes.length} Bounding Boxes)
@@ -1355,16 +1384,16 @@ export default function Analyze() {
 
             {/* Data Warnings Banner — shown when STAC fetch partially or fully failed */}
             {result?.data_warnings && result.data_warnings.length > 0 && (
-              <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 shadow-xl">
+              <div className="rounded-xl border border-blue-500/20 bg-slate-900/60 p-4 shadow-xl">
                 <div className="flex items-start gap-3">
-                  <svg className="h-4 w-4 text-amber-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <svg className="h-4 w-4 text-sky-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
                   </svg>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-amber-400 mb-1">Satellite Data Fetch Warning</p>
+                    <p className="text-xs font-semibold text-sky-400 mb-1">Satellite Data Fetch Warning</p>
                     <ul className="space-y-1">
                       {result.data_warnings.map((w, i) => (
-                        <li key={i} className="text-xs text-amber-300/80 font-mono leading-snug break-words">{w}</li>
+                        <li key={i} className="text-xs text-slate-300/80 font-mono leading-snug break-words">{w}</li>
                       ))}
                     </ul>
                   </div>
@@ -1397,7 +1426,7 @@ export default function Analyze() {
                         "text-[10px] font-mono px-1.5 py-0.5 rounded border",
                         result.data_source === "cached_catalog"
                           ? "bg-primary/10 border-primary/30 text-primary"
-                          : "bg-amber-500/10 border-amber-500/30 text-amber-400"
+                          : "bg-sky-500/10 border-sky-500/20 text-sky-400"
                       )}>
                         {result.data_source === "cached_catalog" ? "CACHED CATALOG" : "LIVE FALLBACK"}
                       </span>
@@ -1440,7 +1469,7 @@ export default function Analyze() {
                             <span className="text-muted-foreground">Data Origin:</span>
                             <span className={cn(
                               "font-semibold",
-                              result.data_source === "cached_catalog" ? "text-primary" : "text-amber-400"
+                              result.data_source === "cached_catalog" ? "text-primary" : "text-sky-400"
                             )}>
                               {result.data_source}
                             </span>

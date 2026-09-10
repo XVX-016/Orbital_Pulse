@@ -7,16 +7,19 @@ and normalized coordinate tokens ({<ymin><xmin><ymax><xmax>|<score>}) into
 structured visual evidence dictionaries compatible with the SatQuery API contract.
 """
 
+import math
 import re
 from typing import Dict, List, Any, Optional
 
 
 def clean_geochat_text(response_text: str) -> str:
-    """Strips raw GeoChat XML tags (<p>...</p>), coordinate tokens ({<y1><x1><y2><x2>|<score>}), and <delim> from text."""
+    """Remove model-only grounding markup while preserving the narrative answer."""
     if not response_text:
         return ""
     # Remove coordinate token structures: {<69><51><73><75>|<1>}
     text = re.sub(r"\{<\d+><\d+><\d+><\d+>\|[^}]+\}", "", response_text)
+    # Some checkpoints / prompt variants emit an explicit box tag instead.
+    text = re.sub(r"<box>\s*\[\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*\]\s*</box>", "", text, flags=re.I)
     # Remove delim tokens
     text = re.sub(r"<delim>", "", text)
     # Remove XML region tags: <p>label</p> -> label
@@ -24,6 +27,44 @@ def clean_geochat_text(response_text: str) -> str:
     # Clean multiple spaces and trailing whitespace
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def normalize_visual_box(
+    box: List[float], *, coordinate_space: str = "percent", image_width: Optional[int] = None,
+    image_height: Optional[int] = None,
+) -> List[float]:
+    """Return a sorted, clipped ``[xmin, ymin, xmax, ymax]`` percentage box.
+
+    ``coordinate_space`` is deliberately explicit: ``percent`` is GeoChat's
+    documented 0--100 grid, ``grid_1000`` is a 0--1000 VLM grid, and ``pixels``
+    requires the source image dimensions.  Never infer pixel versus percentage
+    from magnitude: a 90px coordinate is ambiguous and caused prior bad boxes.
+    """
+    if len(box) != 4:
+        raise ValueError("A visual grounding box must contain exactly four coordinates")
+    try:
+        values = [float(value) for value in box]
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Visual grounding coordinates must be numeric") from exc
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("Visual grounding coordinates must be finite")
+
+    if coordinate_space == "percent":
+        x_scale = y_scale = 100.0
+    elif coordinate_space == "grid_1000":
+        x_scale = y_scale = 1000.0
+    elif coordinate_space == "pixels":
+        if not image_width or not image_height or image_width <= 0 or image_height <= 0:
+            raise ValueError("Pixel boxes require positive image_width and image_height")
+        x_scale, y_scale = float(image_width), float(image_height)
+    else:
+        raise ValueError(f"Unsupported coordinate space: {coordinate_space}")
+
+    x1, y1, x2, y2 = values
+    x1, x2 = sorted((max(0.0, min(x_scale, x1)), max(0.0, min(x_scale, x2))))
+    y1, y2 = sorted((max(0.0, min(y_scale, y1)), max(0.0, min(y_scale, y2))))
+    return [round(x1 / x_scale * 100.0, 4), round(y1 / y_scale * 100.0, 4),
+            round(x2 / x_scale * 100.0, 4), round(y2 / y_scale * 100.0, 4)]
 
 
 def parse_geochat_grounding(
@@ -75,8 +116,8 @@ def parse_geochat_grounding(
             ymin_n, xmin_n, ymax_n, xmax_n, score_tok = box_match.groups()
             ymin_n, xmin_n, ymax_n, xmax_n = map(int, (ymin_n, xmin_n, ymax_n, xmax_n))
 
-            # Standardize normalized box to [xmin, ymin, xmax, ymax] in [0, 100]
-            norm_box = [xmin_n, ymin_n, xmax_n, ymax_n]
+            # GeoChat native token coordinates are a 0--100 grid.
+            norm_box = normalize_visual_box([xmin_n, ymin_n, xmax_n, ymax_n])
 
             item = {
                 "label": current_label,
@@ -85,10 +126,10 @@ def parse_geochat_grounding(
             }
 
             if img_width is not None and img_height is not None:
-                xmin_px = int((xmin_n / 100.0) * img_width)
-                ymin_px = int((ymin_n / 100.0) * img_height)
-                xmax_px = int((xmax_n / 100.0) * img_width)
-                ymax_px = int((ymax_n / 100.0) * img_height)
+                xmin_px = int(norm_box[0] / 100.0 * img_width)
+                ymin_px = int(norm_box[1] / 100.0 * img_height)
+                xmax_px = int(norm_box[2] / 100.0 * img_width)
+                ymax_px = int(norm_box[3] / 100.0 * img_height)
                 item["box_pixels"] = [xmin_px, ymin_px, xmax_px, ymax_px]
 
             evidence.append(item)
@@ -98,7 +139,7 @@ def parse_geochat_grounding(
         for box_match in re.finditer(box_token_pattern, response_text):
             ymin_n, xmin_n, ymax_n, xmax_n, score_tok = box_match.groups()
             ymin_n, xmin_n, ymax_n, xmax_n = map(int, (ymin_n, xmin_n, ymax_n, xmax_n))
-            norm_box = [xmin_n, ymin_n, xmax_n, ymax_n]
+            norm_box = normalize_visual_box([xmin_n, ymin_n, xmax_n, ymax_n])
             item = {
                 "label": "detected_object",
                 "box_normalized": norm_box,
@@ -106,10 +147,8 @@ def parse_geochat_grounding(
             }
             if img_width is not None and img_height is not None:
                 item["box_pixels"] = [
-                    int((xmin_n / 100.0) * img_width),
-                    int((ymin_n / 100.0) * img_height),
-                    int((xmax_n / 100.0) * img_width),
-                    int((ymax_n / 100.0) * img_height)
+                    int(norm_box[0] / 100.0 * img_width), int(norm_box[1] / 100.0 * img_height),
+                    int(norm_box[2] / 100.0 * img_width), int(norm_box[3] / 100.0 * img_height)
                 ]
             evidence.append(item)
 
