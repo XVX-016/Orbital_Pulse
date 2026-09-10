@@ -30,11 +30,12 @@ _GEOCHAT_MODEL = None
 _GEOCHAT_IMAGE_PROCESSOR = None
 _GEOCHAT_LOADED = False
 _GEOCHAT_LOAD_TIME = 0.0
+_GEOCHAT_LOAD_ERROR: Optional[str] = None
 
 
 def init_geochat_model(model_path: str = "MBZUAI/geochat-7B") -> bool:
     """Loads GeoChat-7B in 4-bit mode once during service startup."""
-    global _GEOCHAT_TOKENIZER, _GEOCHAT_MODEL, _GEOCHAT_IMAGE_PROCESSOR, _GEOCHAT_LOADED, _GEOCHAT_LOAD_TIME
+    global _GEOCHAT_TOKENIZER, _GEOCHAT_MODEL, _GEOCHAT_IMAGE_PROCESSOR, _GEOCHAT_LOADED, _GEOCHAT_LOAD_TIME, _GEOCHAT_LOAD_ERROR
 
     if _GEOCHAT_LOADED:
         return True
@@ -46,6 +47,9 @@ def init_geochat_model(model_path: str = "MBZUAI/geochat-7B") -> bool:
         from geochat.model.builder import load_pretrained_model
         from geochat.mm_utils import get_model_name_from_path
 
+        if not torch.cuda.is_available():
+            raise RuntimeError("GeoChat 4-bit inference requires a CUDA-enabled PyTorch runtime and GPU.")
+        model_path = os.environ.get("GEOCHAT_MODEL_PATH", model_path)
         model_name = get_model_name_from_path(model_path)
         tokenizer, model, image_processor, context_len = load_pretrained_model(
             model_path=model_path,
@@ -63,6 +67,7 @@ def init_geochat_model(model_path: str = "MBZUAI/geochat-7B") -> bool:
         _GEOCHAT_MODEL = model
         _GEOCHAT_IMAGE_PROCESSOR = image_processor
         _GEOCHAT_LOADED = True
+        _GEOCHAT_LOAD_ERROR = None
         _GEOCHAT_LOAD_TIME = time.time() - t0
 
         peak_vram = torch.cuda.max_memory_allocated() / 1024**3 if torch.cuda.is_available() else 0.0
@@ -72,11 +77,17 @@ def init_geochat_model(model_path: str = "MBZUAI/geochat-7B") -> bool:
     except Exception as e:
         logger.error(f"Failed to load GeoChat-7B model: {e}", exc_info=True)
         _GEOCHAT_LOADED = False
+        _GEOCHAT_LOAD_ERROR = str(e)
         return False
 
 
 def is_geochat_loaded() -> bool:
     return _GEOCHAT_LOADED
+
+
+def geochat_status() -> Dict[str, Any]:
+    """Diagnosable state for health checks and execution traces; never expose a stack trace."""
+    return {"loaded": _GEOCHAT_LOADED, "load_time_seconds": round(_GEOCHAT_LOAD_TIME, 2), "error": _GEOCHAT_LOAD_ERROR}
 
 
 def run_geochat_inference(
@@ -147,7 +158,7 @@ def run_geochat_inference(
             input_ids,
             images=image_tensor,
             do_sample=False,
-            max_new_tokens=128,
+            max_new_tokens=int(os.environ.get("GEOCHAT_MAX_NEW_TOKENS", "384")),
             use_cache=True,
             stopping_criteria=[stopping_criteria],
         )
@@ -237,7 +248,7 @@ def run_geochat_multi_image_inference(
             input_ids,
             images=images_stacked,
             do_sample=False,
-            max_new_tokens=128,
+            max_new_tokens=int(os.environ.get("GEOCHAT_MAX_NEW_TOKENS", "384")),
             use_cache=True,
             stopping_criteria=[stopping_criteria],
         )

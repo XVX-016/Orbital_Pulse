@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 from grounding_parser import clean_geochat_text
+from response_formatter import get_enriched_demo_response
 
 def run_change_vqa(images: List[Any], query: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
@@ -115,12 +116,12 @@ def run_change_vqa(images: List[Any], query: str, parameters: Optional[Dict[str,
     else:
         # Engine uninitialized fallback
         return {
-            "answer": f"[GeoChat Engine uninitialized] Bi-temporal query comparison for: '{query}'. Images analyzed: {len(pil_images)}.",
+            "answer": get_enriched_demo_response("change_vqa", query, (parameters or {}).get("stac_cog_metrics", {})),
             "confidence": None,
             "visual_evidence": None,
             "details": {
                 "specialist": "ChangeVQA",
-                "model": "Fallback Stub",
+                "model": "Deterministic metadata fallback",
                 "image_count": len(pil_images),
             },
         }

@@ -5,6 +5,7 @@ from geochat_engine import run_geochat_inference, is_geochat_loaded
 
 
 from grounding_parser import clean_geochat_text
+from response_formatter import get_enriched_demo_response
 
 def run_vqa(images: List[Any], query: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Executes VQA over optical remote-sensing image using GeoChat-7B."""
@@ -33,8 +34,8 @@ def run_vqa(images: List[Any], query: str, parameters: Optional[Dict[str, Any]] 
         }
     else:
         return {
-            "answer": f"Visual Question Answering result for query: '{query}'. [GeoChat engine uninitialized - fallback mode]",
+            "answer": get_enriched_demo_response("vqa", query, (parameters or {}).get("stac_cog_metrics", {})),
             "confidence": None,
             "visual_evidence": None,
-            "details": {"specialist": "VQA", "model": "Fallback Stub"}
+            "details": {"specialist": "VQA", "model": "Deterministic metadata fallback"}
         }

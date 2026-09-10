@@ -17,6 +17,8 @@ from PIL import Image
 
 from controller import route_and_execute
 from geochat_engine import load_image_robust
+from prompt_builder import build_geochat_prompt
+from response_formatter import polish_model_output
 import db as analysis_db
 
 logging.basicConfig(level=logging.INFO)
@@ -56,7 +58,8 @@ async def startup_event():
     # Load 4-bit GeoChat-7B model engine once at startup
     try:
         from geochat_engine import init_geochat_model
-        init_geochat_model("MBZUAI/geochat-7B")
+        if not init_geochat_model("MBZUAI/geochat-7B"):
+            logger.warning("GeoChat is degraded; see /health geochat_error for the actionable loader failure.")
     except Exception as ge_err:
         logger.error(f"Failed to initialize GeoChat engine: {ge_err}")
 
@@ -70,13 +73,14 @@ async def startup_event():
 
 @app.get("/health")
 def health_check():
-    from geochat_engine import is_geochat_loaded
+    from geochat_engine import is_geochat_loaded, geochat_status
     peak_vram_gb = torch.cuda.max_memory_allocated() / 1024**3 if torch.cuda.is_available() else 0.0
     return {
         "status": "ok" if is_geochat_loaded() else "degraded",
         "service": "SatQuery AI Agentic Service",
         "model": "MBZUAI/geochat-7B (4-bit)",
         "geochat_loaded": is_geochat_loaded(),
+        "geochat_error": geochat_status()["error"],
         "peak_vram_gb": round(peak_vram_gb, 2),
     }
 
@@ -101,6 +105,7 @@ async def analyze_query(request: Request):
         body = await request.json()
         user_query = body.get("query", "")
         scenario = body.get("scenario")
+        scenario_preset = body.get("scenario_preset") or scenario
         modality = body.get("modality", "optical")
         temporal = body.get("temporal", "single")
         lat = body.get("lat")
@@ -112,6 +117,7 @@ async def analyze_query(request: Request):
         form = await request.form()
         user_query = form.get("query", "")
         scenario = form.get("scenario")
+        scenario_preset = form.get("scenario_preset") or scenario
         modality = form.get("modality", "optical")
         temporal = form.get("temporal", "single")
         lat = form.get("lat")
@@ -142,6 +148,8 @@ async def analyze_query(request: Request):
         raise HTTPException(status_code=400, detail="Query string is required.")
 
     custom_params: dict = {}
+    scenario_preset = str(scenario_preset or "")
+    custom_params["scenario_preset"] = scenario_preset
     # Tracks which data path served the location query; surfaced in the response.
     data_source: Optional[str] = None
 
@@ -172,7 +180,11 @@ async def analyze_query(request: Request):
                 cog_data = fetch_scene_cog_data(matched_scene)
                 raw_bytes = cog_data.get("image_bytes")
                 if cog_data.get("ndvi_metrics"):
-                    custom_params["stac_cog_metrics"] = cog_data["ndvi_metrics"]
+                    custom_params["stac_cog_metrics"] = {
+                        **cog_data["ndvi_metrics"],
+                        "scene_id": matched_scene["scene_id"],
+                        "cloud_cover": matched_scene.get("cloud_cover"),
+                    }
 
                 if raw_bytes:
                     logger.info(f"Query by location: fetched {len(raw_bytes):,} bytes from scene {matched_scene['scene_id']}")
@@ -245,7 +257,11 @@ async def analyze_query(request: Request):
                         _cog_data = fetch_scene_cog_data(_live_scene)
                         _raw_bytes = _cog_data.get("image_bytes")
                         if _cog_data.get("ndvi_metrics"):
-                            custom_params["stac_cog_metrics"] = _cog_data["ndvi_metrics"]
+                            custom_params["stac_cog_metrics"] = {
+                                **_cog_data["ndvi_metrics"],
+                                "scene_id": _scene_id,
+                                "cloud_cover": _cc,
+                            }
 
                         if _raw_bytes:
                             _scene_img = load_image_robust(_raw_bytes)
@@ -350,13 +366,19 @@ async def analyze_query(request: Request):
             custom_params["after_tif_path"] = after_path
 
     # Route through controller
+    geochat_prompt = build_geochat_prompt(scenario_preset, user_query)
     response = route_and_execute(
         images=images_payload,
-        query=user_query,
+        query=geochat_prompt,
         modality=modality or "optical",
         temporal=temporal or "single",
         custom_parameters=custom_params,
     )
+
+    if isinstance(response, dict):
+        response["answer"] = polish_model_output(
+            response.get("answer", ""), scenario_preset, custom_params.get("stac_cog_metrics"), user_query,
+        )
 
     if isinstance(response, dict) and preview_base64_list:
         response["preview_images_base64"] = preview_base64_list
@@ -487,4 +509,3 @@ async def list_catalog(limit: int = 100):
         "count": len(features),
         "features": features,
     }
-
