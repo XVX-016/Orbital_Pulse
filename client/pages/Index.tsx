@@ -1,7 +1,34 @@
-import { ArrowUpRight, ChevronLeft, ChevronRight, Flame, Wind, Waves, Thermometer, Globe2 } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, Cpu, GitCompare, MessageSquareText, Radio, Flame, Wind, Waves, Thermometer, Globe2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo } from "react";
+
+const FEATURES = [
+  {
+    icon: MessageSquareText,
+    label: "Visual Question Answering",
+    detail: "Ask natural-language queries on optical & SAR satellite imagery.",
+    to: "/analyze",
+  },
+  {
+    icon: GitCompare,
+    label: "Change Detection & Description",
+    detail: "Quantify and describe surface alterations across bi-temporal pairs.",
+    to: "/analyze",
+  },
+  {
+    icon: Radio,
+    label: "Optical–SAR Fusion",
+    detail: "Combine cloud-penetrating radar with high-res optical channels.",
+    to: "/analyze",
+  },
+  {
+    icon: Cpu,
+    label: "Agentic Task Routing",
+    detail: "Automatic intent classification & auditable execution traces.",
+    to: "/analyze",
+  },
+];
 
 interface EonetEventItem {
   title: string;
@@ -192,24 +219,24 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Mission Overview Banner */}
-      <section className="relative z-10 border-y border-border overflow-hidden py-16 sm:py-20 px-6">
-        {/* Background Visual using bg.jpeg */}
-        <div className="absolute inset-0 z-0">
-          <img
-            src="/bg.jpeg"
-            alt="Orbital pulse Earth observation background"
-            className="h-full w-full object-cover object-center filter brightness-50 contrast-110"
-          />
-          <div className="absolute inset-0 bg-[#0A0A0A]/75 backdrop-blur-[2px]" />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0A] via-transparent to-[#0A0A0A]" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0A0A0A] via-transparent to-[#0A0A0A]" />
-        </div>
-
-        <div className="relative z-10 mx-auto max-w-4xl text-center">
-          <p className="text-base sm:text-lg md:text-xl text-foreground/90 font-medium leading-relaxed tracking-normal drop-shadow-md">
-            Orbital Pulse unifies multimodal Earth observation by combining natural-language Visual Question Answering with bi-temporal change detection and cloud-penetrating optical–SAR radar fusion, orchestrated through an autonomous agentic controller with auditable intent routing and spatial object grounding across multi-sensor satellite constellations.
-          </p>
+      {/* Feature Cards Grid */}
+      <section className="relative z-10 border-y border-border bg-background px-6 py-12">
+        <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+          {FEATURES.map(({ icon: Icon, label, detail, to }) => (
+            <Link
+              key={label}
+              to={to}
+              className="group flex items-start gap-4 rounded-lg border-l border-border pl-4 pr-3 py-3 transition-all duration-150 hover:border-accent hover:bg-card/60"
+            >
+              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/10 border border-accent/20 text-accent transition-colors group-hover:bg-primary/10 group-hover:border-primary/30 group-hover:text-primary">
+                <Icon aria-hidden="true" className="h-4 w-4" strokeWidth={1.5} />
+              </div>
+              <span>
+                <span className="block text-body font-semibold text-foreground">{label}</span>
+                <span className="mt-1 block text-caption text-muted-foreground">{detail}</span>
+              </span>
+            </Link>
+          ))}
         </div>
       </section>
 
