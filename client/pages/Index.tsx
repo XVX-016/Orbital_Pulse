@@ -1,7 +1,34 @@
-import { ArrowUpRight, ChevronLeft, ChevronRight, Flame, Wind, Waves, Thermometer, Globe2 } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, Flame, Wind, Waves, Thermometer, Globe2, Trees, ShieldAlert, Building2, ShieldCheck } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo } from "react";
+
+const OPERATIONAL_SCENARIOS = [
+  {
+    role: "Forest conservation agencies",
+    icon: Trees,
+    scenario: "Detect illegal logging within days of occurrence by comparing recent satellite passes against historical baselines.",
+    capability: "Change-VQA",
+  },
+  {
+    role: "Disaster response teams",
+    icon: ShieldAlert,
+    scenario: "Assess flood or wildfire damage through cloud cover using radar, when optical imagery alone is unusable.",
+    capability: "SAR Fusion",
+  },
+  {
+    role: "Urban planning / infrastructure agencies",
+    icon: Building2,
+    scenario: "Locate and count specific structures \u2014 buildings, roads, facilities \u2014 without manual image review.",
+    capability: "Grounding",
+  },
+  {
+    role: "Defence / GEOINT analysts",
+    icon: ShieldCheck,
+    scenario: "Ask direct questions about a scene and get an auditable, traceable answer, not a black-box output.",
+    capability: "VQA + Execution Trace",
+  },
+];
 
 interface EonetEventItem {
   title: string;
@@ -229,6 +256,43 @@ export default function Index() {
                 </Link>
               </Button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Operational Scenarios — Role × Capability Mapping */}
+      <section className="relative z-10 border-b border-border bg-[#0E0E0E] px-6 py-14">
+        <div className="mx-auto max-w-[1400px]">
+          <div className="mb-8">
+            <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+              Who Uses This — and How
+            </h2>
+            <p className="mt-1 text-caption text-muted-foreground max-w-2xl">
+              Each capability maps to a real operational role and a concrete field scenario.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-5">
+            {OPERATIONAL_SCENARIOS.map(({ role, scenario, capability }) => (
+              <div
+                key={role}
+                className="group flex flex-col justify-between rounded-lg border border-border bg-[#141414] p-5 transition-all duration-200 hover:border-accent/60 hover:bg-[#181818]"
+              >
+                <div>
+                  <h3 className="text-body font-semibold text-foreground tracking-tight leading-snug text-center mb-3">
+                    {role}
+                  </h3>
+                  <p className="text-caption text-neutral-400 leading-relaxed text-center">
+                    &ldquo;{scenario}&rdquo;
+                  </p>
+                </div>
+                <div className="mt-5 pt-3 border-t border-border/50 flex items-center justify-center">
+                  <span className="inline-flex items-center rounded border border-primary/20 bg-primary/10 px-2.5 py-0.5 font-mono text-[11px] font-semibold text-primary">
+                    {capability}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
