@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { ChevronRight, Layers3, Pause, Play, Search, X, Satellite, Radio, Crosshair, Globe as GlobeIcon, Activity } from "lucide-react";
+import { ChevronRight, Layers3, Pause, Play, Search, X, Satellite, Radio, Crosshair, Globe as GlobeIcon } from "lucide-react";
 import { useQuery } from '@tanstack/react-query';
 import { cn } from "@/lib/utils";
 import { useGlobe } from "@/lib/globe-context";
@@ -133,11 +133,7 @@ export default function Globe() {
         </div>
       </div>
 
-      {/* Status & Loader Indicator */}
-      <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 md:left-4 md:-translate-x-0 md:bottom-28 z-30 flex items-center gap-3 bg-zinc-950/80 backdrop-blur-md px-3 py-2 rounded-lg border border-zinc-800 text-xs text-zinc-300">
-        <Activity className={`w-4 h-4 ${isLoading ? 'animate-spin text-cyan-400' : 'text-emerald-400'}`} />
-        <span>{isLoading ? 'Streaming Ephemeris...' : error ? 'Error loading data' : 'Orbital Pulse Live'}</span>
-      </div>
+
       {error && (
         <div className="pointer-events-auto absolute top-4 left-1/2 z-50 -translate-x-1/2 rounded-md bg-destructive/90 px-4 py-2 text-sm font-medium text-destructive-foreground backdrop-blur shadow-lg border border-destructive/50 flex items-center gap-2">
           <span>{error}</span>

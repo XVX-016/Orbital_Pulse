@@ -14,12 +14,12 @@ import {
 import {
   fetchSatelliteCatalog,
   parseTLECatalog,
-  HARDCODED_TLE_STRING,
   propagateSatellite,
   computePastOrbitPositions,
   SatelliteData,
   SatellitePosition,
 } from "@/lib/satellite-service";
+import { MOCK_TLES } from "@/lib/mock-tles";
 
 function getSatelliteColorStyle(sat: SatelliteData) {
   if (sat.isISRO) {
@@ -117,7 +117,7 @@ const GlobeContext = createContext<GlobeContextType | null>(null);
 export function GlobeProvider({ children }: { children: React.ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(true);
   const [showSatellitePoints, setShowSatellitePoints] = useState(true);
-  const [satellites, setSatellites] = useState<SatelliteData[]>(() => parseTLECatalog(HARDCODED_TLE_STRING));
+  const [satellites, setSatellites] = useState<SatelliteData[]>(() => parseTLECatalog(Object.values(MOCK_TLES).join("\n")));
   const [selectedSat, setSelectedSat] = useState<SatelliteData | null>(null);
   const [selectedPos, setSelectedPos] = useState<SatellitePosition | null>(null);
   const [catalogSource, setCatalogSource] = useState<string>("Offline Catalog");
@@ -188,9 +188,14 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
     entityMapRef.current = entityMap;
 
     const now = new Date();
-    const isLargeCatalog = satellites.length > 50;
 
-    satellites.forEach((sat) => {
+    // Deduplicate by noradId — MOCK_TLES groups can overlap (same sat in 'starlink' + 'active')
+    const uniqueSatellites = Array.from(
+      new Map(satellites.map((s) => [s.noradId, s])).values()
+    );
+    const isLargeCatalog = uniqueSatellites.length > 50;
+
+    uniqueSatellites.forEach((sat) => {
       const pos = propagateSatellite(sat.satrec, now);
       if (!pos) return;
 

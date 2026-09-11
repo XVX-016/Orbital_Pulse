@@ -52,6 +52,11 @@ export default function GlobeCanvas() {
     controller.enableTilt = isGlobe;
     controller.enableLook = isGlobe;
     controller.enableInputs = isGlobe;
+
+    // Zoom limits: 500 km (low-orbit inspection) → 50 Mm (full shell overview)
+    // Works for both scroll-wheel and pinch-to-zoom
+    controller.minimumZoomDistance = 500_000;   // 500 km above Earth surface
+    controller.maximumZoomDistance = 50_000_000; // 50,000 km — fits full LEO + MEO shell
   }, [pathname, viewerRef, isGlobe]);
 
   const handleViewerReady = useCallback((viewer: CesiumViewer) => {
