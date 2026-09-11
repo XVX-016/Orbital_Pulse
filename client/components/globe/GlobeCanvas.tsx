@@ -10,8 +10,8 @@ import {
   CustomDataSource,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
-  WebMapTileServiceImageryProvider,
-  createWorldImageryAsync,
+  UrlTemplateImageryProvider,
+  ArcGisMapServerImageryProvider,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import { useGlobe } from "@/lib/globe-context";
@@ -83,7 +83,7 @@ export default function GlobeCanvas() {
     // Initial camera setup per route — distinct altitudes give flyToView() real delta to animate
     if (isGlobeRoute) {
       viewer.camera.setView({
-        destination: Cartesian3.fromDegrees(0.0, 20.0, 12500000),
+        destination: Cartesian3.fromDegrees(78.9629, 20.5937, 12500000),
         orientation: {
           heading: 0.0,
           pitch: -Math.PI / 2,
@@ -92,7 +92,7 @@ export default function GlobeCanvas() {
       });
     } else {
       viewer.camera.setView({
-        destination: Cartesian3.fromDegrees(0.0, 20.0, 18000000),
+        destination: Cartesian3.fromDegrees(78.9629, 20.5937, 18000000),
         orientation: {
           heading: 0.0,
           pitch: -Math.PI / 2,
@@ -112,6 +112,13 @@ export default function GlobeCanvas() {
     scene.globe.enableLighting = true;
     scene.globe.lightingFadeOutDistance = 10000000.0;
     scene.globe.lightingFadeInDistance = 20000000.0;
+    
+    if (scene.sun) {
+      scene.sun.show = true;
+    }
+    if (scene.moon) {
+      scene.moon.show = true;
+    }
 
     if (scene.skyAtmosphere) {
       scene.skyAtmosphere.show = true;
@@ -120,32 +127,22 @@ export default function GlobeCanvas() {
       scene.skyAtmosphere.saturationShift = 0.1;
     }
 
-    // Setup NASA GIBS WMTS high-resolution Earth satellite imagery layer
+    // Setup CartoDB Dark Matter high-resolution stylized Earth imagery layer
     const setupImagery = async () => {
       try {
         viewer.imageryLayers.removeAll();
 
-        // 1. Try NASA GIBS BlueMarble / VIIRS TrueColor WMTS
-        const gibsProvider = new WebMapTileServiceImageryProvider({
-          url: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief_Bathymetry/default/GoogleMapsCompatible_Level8/{TileMatrix}/{TileRow}/{TileCol}.jpeg",
-          layer: "BlueMarble_ShadedRelief_Bathymetry",
-          style: "default",
-          format: "image/jpeg",
-          tileMatrixSetID: "GoogleMapsCompatible_Level8",
-          maximumLevel: 8,
-          credit: "NASA GIBS / Earthdata",
-        });
+        // Use ArcGIS Dark Gray Base instead of Carto to avoid API key requirements
+        const esriDarkProvider = await ArcGisMapServerImageryProvider.fromUrl(
+          "https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer",
+          {
+            credit: "Tiles © Esri — Esri, DeLorme, NAVTEQ",
+          }
+        );
 
-        viewer.imageryLayers.addImageryProvider(gibsProvider);
+        viewer.imageryLayers.addImageryProvider(esriDarkProvider);
       } catch (err) {
-        console.warn("NASA GIBS tile fetch error — using World Imagery fallback:", err);
-        try {
-          const fallbackProvider = await createWorldImageryAsync();
-          viewer.imageryLayers.removeAll();
-          viewer.imageryLayers.addImageryProvider(fallbackProvider);
-        } catch (e) {
-          console.error("Fallback imagery failed", e);
-        }
+        console.warn("CartoDB Dark Matter tile fetch error:", err);
       }
     };
     setupImagery();

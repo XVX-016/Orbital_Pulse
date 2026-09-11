@@ -8,6 +8,8 @@ import {
   Color,
   EasingFunction,
   PolylineGlowMaterialProperty,
+  Cartesian2,
+  LabelStyle,
 } from "cesium";
 import {
   fetchSatelliteCatalog,
@@ -27,6 +29,33 @@ function getSatelliteColorStyle(sat: SatelliteData) {
       pixelSize: 9,
       outlineWidth: 2.5,
     };
+  }
+
+  if (sat.subType) {
+    if (sat.subType === "Gen1") {
+      return {
+        color: Color.fromCssColorString("#3b82f6"), // Blue
+        outlineColor: Color.fromCssColorString("#93c5fd"),
+        pixelSize: 6,
+        outlineWidth: 1.5,
+      };
+    }
+    if (sat.subType === "Gen2-Transit") {
+      return {
+        color: Color.fromCssColorString("#22c55e"), // Green
+        outlineColor: Color.fromCssColorString("#86efac"),
+        pixelSize: 6,
+        outlineWidth: 1.5,
+      };
+    }
+    if (sat.subType === "v2-mini") {
+      return {
+        color: Color.fromCssColorString("#f97316"), // Orange
+        outlineColor: Color.fromCssColorString("#fdba74"),
+        pixelSize: 6,
+        outlineWidth: 1.5,
+      };
+    }
   }
 
   switch (sat.type) {
@@ -77,7 +106,10 @@ interface GlobeContextType {
   isPlaying: boolean;
   setIsPlaying: React.Dispatch<React.SetStateAction<boolean>>;
   catalogSource: string;
+  setCatalogSource: React.Dispatch<React.SetStateAction<string>>;
   error: string | null;
+  setError: React.Dispatch<React.SetStateAction<string | null>>;
+  setSatellites: React.Dispatch<React.SetStateAction<SatelliteData[]>>;
 }
 
 const GlobeContext = createContext<GlobeContextType | null>(null);
@@ -144,14 +176,20 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [showSatellitePoints]);
 
+  const entityMapRef = useRef<Map<string, any>>(new Map());
+
   // Create satellite point entities & orbit trails when catalog updates
   useEffect(() => {
     const dataSource = dataSourceRef.current;
     if (!dataSource || satellites.length === 0) return;
 
     dataSource.entities.removeAll();
+    const entityMap = new Map<string, any>();
+    entityMapRef.current = entityMap;
 
     const now = new Date();
+    const isLargeCatalog = satellites.length > 50;
+
     satellites.forEach((sat) => {
       const pos = propagateSatellite(sat.satrec, now);
       if (!pos) return;
@@ -159,13 +197,13 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
       const positionCartesian = Cartesian3.fromDegrees(pos.longitude, pos.latitude, pos.altitude * 1000);
       const style = getSatelliteColorStyle(sat);
 
-      const pastPts = computePastOrbitPositions(sat.satrec, now, 18, 45);
-      const trailCartesians = pastPts.map((p) => Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude * 1000));
+      // Only compute full orbit trails for small catalogs or high-priority stations (e.g. ISS/Tiangong)
+      const shouldHaveInitialTrail = !isLargeCatalog || sat.isISRO || sat.name.includes("ISS") || sat.name.includes("TIANGONG");
 
-      dataSource.entities.add({
+      const entityOptions: any = {
         id: sat.noradId,
         name: sat.name,
-        position: positionCartesian as any,
+        position: positionCartesian,
         point: {
           show: showSatellitePoints as any,
           pixelSize: style.pixelSize,
@@ -173,7 +211,15 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
           outlineColor: style.outlineColor,
           outlineWidth: style.outlineWidth,
         },
-        polyline: {
+        properties: {
+          satelliteData: sat,
+        },
+      };
+
+      if (shouldHaveInitialTrail) {
+        const pastPts = computePastOrbitPositions(sat.satrec, now, 25, 45);
+        const trailCartesians = pastPts.map((p) => Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude * 1000));
+        entityOptions.polyline = {
           positions: trailCartesians as any,
           width: sat.isISRO ? 2.0 : 1.5,
           material: new PolylineGlowMaterialProperty({
@@ -181,15 +227,15 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
             taperPower: 0.7,
             color: style.color.withAlpha(sat.isISRO ? 0.6 : 0.35),
           }),
-        },
-        properties: {
-          satelliteData: sat,
-        },
-      });
+        };
+      }
+
+      const entity = dataSource.entities.add(entityOptions);
+      entityMap.set(sat.noradId, entity);
     });
   }, [satellites, showSatellitePoints]);
 
-  // Update selection highlight without removing entities
+  // Update selection highlight & attach dynamic orbit trail to selected satellite
   const prevSelectedIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -203,33 +249,66 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
 
     // Revert previous selection
     if (prevId) {
-      const prevEntity = dataSource.entities.getById(prevId);
-      if (prevEntity && prevEntity.point) {
+      const prevEntity = entityMapRef.current.get(prevId) || dataSource.entities.getById(prevId);
+      if (prevEntity) {
+        if (prevEntity.point) {
+          const satData: SatelliteData | undefined = prevEntity.properties?.satelliteData?.getValue();
+          if (satData) {
+            const style = getSatelliteColorStyle(satData);
+            prevEntity.point.pixelSize = style.pixelSize as any;
+            prevEntity.point.color = style.color as any;
+          } else {
+            prevEntity.point.pixelSize = 6 as any;
+            prevEntity.point.color = Color.fromCssColorString("#06b6d4") as any;
+          }
+        }
+        // Remove selection-only polyline and ground footprint if it wasn't a permanent station
         const satData: SatelliteData | undefined = prevEntity.properties?.satelliteData?.getValue();
-        if (satData) {
-          const style = getSatelliteColorStyle(satData);
-          prevEntity.point.pixelSize = style.pixelSize as any;
-          prevEntity.point.color = style.color as any;
-        } else {
-          prevEntity.point.pixelSize = 6 as any;
-          prevEntity.point.color = Color.fromCssColorString("#06b6d4") as any;
+        const isPermanent = satData && (satData.isISRO || satData.name.includes("ISS") || satData.name.includes("TIANGONG"));
+        if (!isPermanent) {
+          prevEntity.polyline = undefined;
+          prevEntity.ellipse = undefined;
         }
       }
     }
 
-    // Highlight new selection
-    if (currentId) {
-      const newEntity = dataSource.entities.getById(currentId);
-      if (newEntity && newEntity.point) {
-        newEntity.point.pixelSize = 12 as any;
-        newEntity.point.color = Color.fromCssColorString("#38bdf8") as any;
+    // Highlight new selection & draw full active orbital path
+    if (currentId && selectedSat) {
+      const newEntity = entityMapRef.current.get(currentId) || dataSource.entities.getById(currentId);
+      if (newEntity) {
+        if (newEntity.point) {
+          newEntity.point.pixelSize = 12 as any;
+          newEntity.point.color = Color.fromCssColorString("#38bdf8") as any;
+        }
+
+        const now = new Date();
+        const pastPts = computePastOrbitPositions(selectedSat.satrec, now, 50, 30);
+        newEntity.polyline = {
+          positions: pastPts.map((p) => Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude * 1000)) as any,
+          width: 2.5,
+          material: new PolylineGlowMaterialProperty({
+            glowPower: 0.25,
+            taperPower: 0.7,
+            color: Color.fromCssColorString("#38bdf8").withAlpha(0.8),
+          }),
+        } as any;
+
+        newEntity.ellipse = {
+          semiMajorAxis: 500000.0,
+          semiMinorAxis: 500000.0,
+          height: 0,
+          material: Color.fromCssColorString("#38bdf8").withAlpha(0.12),
+          outline: true,
+          outlineColor: Color.fromCssColorString("#38bdf8").withAlpha(0.5),
+          outlineWidth: 1.5,
+        } as any;
       }
     }
 
     prevSelectedIdRef.current = currentId || null;
-  }, [selectedSat?.noradId]);
+  }, [selectedSat]);
 
-  // Throttled clock update loop (recomputes satellite positions every 1 second and trails periodically)
+  // High-performance clock update loop (updates satellite positions every 1s using cached entity map)
   useEffect(() => {
     let tickCount = 0;
     const interval = setInterval(() => {
@@ -239,17 +318,19 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
 
       const now = new Date();
       tickCount++;
+      const entityMap = entityMapRef.current;
 
       satellites.forEach((sat) => {
         const pos = propagateSatellite(sat.satrec, now);
         if (!pos) return;
 
-        const entity = dataSource.entities.getById(sat.noradId);
+        const entity = entityMap.get(sat.noradId);
         if (entity) {
           entity.position = Cartesian3.fromDegrees(pos.longitude, pos.latitude, pos.altitude * 1000) as any;
-          // Update orbit trail every 4 seconds to maintain smooth trail movement
-          if (tickCount % 4 === 0 && entity.polyline) {
-            const pastPts = computePastOrbitPositions(sat.satrec, now, 18, 45);
+          
+          // Update orbit trail for selected satellite or active stations every 3 seconds
+          if (tickCount % 3 === 0 && entity.polyline && (selectedSat?.noradId === sat.noradId || sat.name.includes("ISS") || sat.name.includes("TIANGONG"))) {
+            const pastPts = computePastOrbitPositions(sat.satrec, now, 45, 30);
             entity.polyline.positions = pastPts.map((p) =>
               Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude * 1000)
             ) as any;
@@ -259,7 +340,7 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [satellites]);
+  }, [satellites, selectedSat]);
 
   // Fly to satellite helper
   const flyToSatellite = useCallback((sat: SatelliteData) => {
@@ -293,7 +374,7 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
 
     if (preset === "home") {
       viewer.camera.flyTo({
-        destination: Cartesian3.fromDegrees(0.0, 20.0, 18000000),
+        destination: Cartesian3.fromDegrees(78.9629, 20.5937, 18000000),
         orientation: {
           heading: 0.0,
           pitch: -Math.PI / 2,
@@ -304,7 +385,7 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
       });
     } else if (preset === "globe") {
       viewer.camera.flyTo({
-        destination: Cartesian3.fromDegrees(0.0, 20.0, 12500000),
+        destination: Cartesian3.fromDegrees(78.9629, 20.5937, 12500000),
         orientation: {
           heading: 0.0,
           pitch: -Math.PI / 2,
@@ -350,7 +431,10 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
         isPlaying,
         setIsPlaying,
         catalogSource,
+        setCatalogSource,
         error,
+        setError,
+        setSatellites,
       }}
     >
       {children}

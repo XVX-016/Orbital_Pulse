@@ -1,5 +1,5 @@
 /**
- * Shared code between client and orbit-service
+ * Shared code between client and backend services
  * Useful to share types between client and services
  * and/or small pure JS functions that can be used on both client and services
  */
