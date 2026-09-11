@@ -84,6 +84,35 @@ def health_check():
         "peak_vram_gb": round(peak_vram_gb, 2),
     }
 
+@app.get("/api/satellites/{constellation}")
+def get_satellites_by_constellation(constellation: str):
+    """
+    Fetch TLEs for a given constellation from Celestrak.
+    """
+    import urllib.request
+    from fastapi.responses import PlainTextResponse
+
+    celestrak_map = {
+        "starlink": "GROUP=starlink",
+        "active": "GROUP=active",
+        "stations": "GROUP=stations",
+        "gps": "GROUP=gps-ops",
+    }
+    
+    query = celestrak_map.get(constellation.lower())
+    if not query:
+        raise HTTPException(status_code=400, detail="Invalid constellation name")
+
+    url = f"https://celestrak.org/NORAD/elements/gp.php?{query}&FORMAT=tle"
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
+        with urllib.request.urlopen(req, timeout=10.0) as response:
+            data = response.read().decode('utf-8')
+            return PlainTextResponse(data)
+    except Exception as e:
+        logger.error(f"Failed to fetch TLEs for {constellation}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to fetch constellation data from Celestrak")
+
 @app.post("/api/analyze")
 async def analyze_query(request: Request):
     """Main Agentic VQA & Remote-Sensing Analysis Endpoint.

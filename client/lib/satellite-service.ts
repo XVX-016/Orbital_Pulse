@@ -10,6 +10,7 @@ export interface SatelliteData {
   line2: string;
   satrec: satellite.SatRec;
   type: SatelliteType;
+  subType?: string;
   isISRO: boolean;
   latitude?: number;
   longitude?: number;
@@ -227,6 +228,15 @@ export function parseTLECatalog(tleText: string): SatelliteData[] {
         const satrec = satellite.twoline2satrec(line1, line2);
         if (satrec && satrec.error === 0) {
           const { type, isISRO } = getSatelliteCategory(name);
+          
+          let subType: string | undefined = undefined;
+          if (type === "comms" && name.toUpperCase().includes("STARLINK")) {
+            const idNum = parseInt(noradId, 10);
+            if (idNum < 47000) subType = "Gen1";
+            else if (idNum < 55000) subType = "Gen2-Transit";
+            else subType = "v2-mini";
+          }
+
           satellites.push({
             id: noradId,
             name,
@@ -235,6 +245,7 @@ export function parseTLECatalog(tleText: string): SatelliteData[] {
             line2,
             satrec,
             type,
+            subType,
             isISRO,
           });
         }
