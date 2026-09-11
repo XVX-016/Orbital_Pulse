@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, Clock, Cpu, Database, Layers, ScanSearch, Radio, ArrowRightLeft, Sparkles, BarChart3, MapPin, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Circle, Clock, Cpu, Database, Layers, ScanSearch, Radio, ArrowRightLeft, Sparkles, MapPin, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Technology Stack Items
@@ -15,12 +15,7 @@ const TECH_STACK = [
     description: "Dynamic query routing across 4 core specialists: Visual QA, spatial grounding, bi-temporal change detection, and SAR fusion.",
     icon: Cpu,
   },
-  {
-    name: "Deterministic Geospatial Metrics",
-    category: "Pixel-Level Verification",
-    description: "NDVI, land cover breakdown, and spectral change area computed independently of the VLM from real multi-band GeoTIFF pixel data.",
-    icon: BarChart3,
-  },
+
   {
     name: "Live STAC Catalog & Fallback",
     category: "Satellite Data Ingestion",
@@ -106,7 +101,7 @@ export default function About() {
 
       {/* Main Content Container matching landing page text background */}
       <div className="mx-auto max-w-[1050px] relative z-10 rounded-2xl border border-white/10 bg-[#121212]/90 p-8 sm:p-12 shadow-2xl space-y-14">
-        
+
         {/* Section 1: Project Overview */}
         <section className="max-w-3xl">
           <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/20 mb-4">
@@ -201,26 +196,30 @@ export default function About() {
                   Fuses synthetic aperture radar (SAR) channels for cloud-penetrating, night-time flood inundation detection.
                 </p>
               </div>
-
-              <div className="rounded-xl border border-white/15 bg-black/65 p-5 backdrop-blur-md transition-all duration-200 hover:border-primary/50 hover:bg-black/80 shadow-lg sm:col-span-2 lg:col-span-1">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-md bg-amber-500/20 text-amber-400">
-                    <BarChart3 className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-foreground text-sm">Deterministic Metrics</h3>
-                    <p className="text-[11px] text-muted-foreground">Pixel Validation</p>
-                  </div>
-                </div>
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  NDVI, land cover, and change-area measurements computed directly from pixel data — independent of and cross-checked against the model's qualitative answer.
-                </p>
-              </div>
             </div>
           </div>
         </section>
 
-        {/* Section 2: Tech Stack */}
+        {/* Section 2: The Problem */}
+        <section className="border-t border-white/10 pt-12">
+          <div className="mb-6">
+            <p className="label-micro mb-2 text-destructive/80">The Problem</p>
+            <h2 className="text-subhead font-semibold text-foreground">Why Manual Remote Sensing Doesn't Scale</h2>
+          </div>
+          <div className="rounded-xl border border-white/10 bg-[#121212]/80 p-6 sm:p-8 space-y-4">
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Satellite constellations now image every point on Earth multiple times a day — yet most of that data never reaches the people who need it most. Interpreting raw satellite imagery requires specialized domain knowledge, command-line GIS toolchains, and hours of manual analysis per scene. As PS-26167 puts it directly: <span className="text-foreground font-medium italic">"non-expert users may find it difficult to obtain meaningful information from satellite imagery through simple natural-language queries."</span>
+            </p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              A disaster responder asking "how much of this district is flooded?" shouldn't need to know what SAR backscatter is. A forest agency monitoring deforestation shouldn't require a GIS specialist to run NDVI differencing on each new Sentinel-2 acquisition. When analysis bottlenecks at expert availability, the satellite data arrives on time but the insight doesn't.
+            </p>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              SatQuery AI was built to close that gap — making Earth observation intelligence as accessible as asking a question.
+            </p>
+          </div>
+        </section>
+
+        {/* Section 3: Tech Stack */}
         <section className="border-t border-white/10 pt-12">
           <div className="mb-8">
             <p className="label-micro mb-2">Architecture</p>
@@ -335,7 +334,7 @@ export default function About() {
                           {item.title}
                         </h3>
                       </div>
-                      
+
                       {/* Status Badge */}
                       <span
                         className={cn(

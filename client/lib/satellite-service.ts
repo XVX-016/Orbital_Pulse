@@ -1,4 +1,5 @@
 import * as satellite from "satellite.js";
+import { MOCK_TLES } from "@/lib/mock-tles";
 
 export type SatelliteType = "optical" | "sar" | "weather" | "comms";
 
@@ -295,7 +296,8 @@ export async function fetchSatelliteCatalog(): Promise<SatelliteCatalogResult> {
 
     return { satellites: parsed, source: "live" };
   } catch (err) {
-    console.warn("Orbit service fetch error or timeout, using fallback hardcoded catalog:", err);
-    return { satellites: parseTLECatalog(HARDCODED_TLE_STRING), source: "fallback" };
+    console.warn("Orbit service fetch error or timeout, using mock TLE catalog fallback:", err);
+    const mockCatalogText = Object.values(MOCK_TLES).join("\n");
+    return { satellites: parseTLECatalog(mockCatalogText), source: "fallback" };
   }
 }
