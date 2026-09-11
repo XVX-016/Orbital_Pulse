@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft, FlaskConical, Leaf, Map, BarChart2, Layers, MapPin, Calendar, Satellite, Globe2, ChevronDown, ChevronUp, SlidersHorizontal } from "lucide-react";
+import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft, FlaskConical, Leaf, Map, BarChart2, Layers, MapPin, Calendar, Satellite, Globe2, ChevronDown, ChevronUp, SlidersHorizontal, Info } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Button } from "@/components/ui/button";
@@ -60,6 +60,7 @@ const PRESET_QUERIES = [
     taskHint: "change" as TaskHint,
     scenario: "deforestation" as ScenarioId,
     scenarioPreset: "deforestation",
+    description: "Track canopy loss and timber roads across time — provides verifiable evidence for conservation enforcement.",
   },
   {
     label: "Building & Object Grounding",
@@ -68,6 +69,7 @@ const PRESET_QUERIES = [
     temporal: "single" as Temporal,
     taskHint: "grounding" as TaskHint,
     scenarioPreset: "grounding",
+    description: "Locate and demarcate infrastructure footprints — turns unstructured overhead imagery into structured asset inventories.",
   },
   {
     label: "SAR Inundation Detection",
@@ -76,6 +78,7 @@ const PRESET_QUERIES = [
     temporal: "single" as Temporal,
     taskHint: "sar_fusion" as TaskHint,
     scenarioPreset: "sar_inundation",
+    description: "See flood extent through cloud cover — critical when optical satellites can't get a clear image during a storm.",
   },
   {
     label: "Optical–SAR Multimodal Fusion",
@@ -84,6 +87,7 @@ const PRESET_QUERIES = [
     temporal: "single" as Temporal,
     taskHint: "sar_fusion" as TaskHint,
     scenarioPreset: "optical_sar_fusion",
+    description: "Fuse radar roughness with multispectral bands — maps soil moisture and surface features even under heavy haze.",
   },
 ];
 
@@ -439,6 +443,7 @@ export default function Analyze() {
   const [taskHint, setTaskHint] = useState<TaskHint>("auto");
   const [scenarioId, setScenarioId] = useState<ScenarioId | null>(null);
   const [scenarioPreset, setScenarioPreset] = useState<string>("");
+  const [hoveredPreset, setHoveredPreset] = useState<string | null>(null);
 
   // Input mode: upload or query-by-location
   const [inputMode, setInputMode] = useState<InputMode>("upload");
@@ -710,27 +715,74 @@ export default function Analyze() {
               </div>
             )}
 
-            {/* 2 ▸ Scenario preset pills — lightweight inline suggestions */}
-            <div className="mt-3 flex flex-wrap items-center gap-1.5">
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground/50 mr-1">Suggestions:</span>
-              {PRESET_QUERIES.map((preset) => (
-                <button
-                  key={preset.label}
-                  type="button"
-                  onClick={() => {
-                    clearWorkspace();
-                    setQuery(preset.query);
-                    setModality(preset.modality);
-                    setTemporal(preset.temporal);
-                    setTaskHint(preset.taskHint);
-                    setScenarioId(preset.scenario ?? null);
-                    handleScenarioClick(preset.scenarioPreset);
-                  }}
-                  className="text-[11px] px-2.5 py-1 rounded-full border border-border/60 bg-transparent hover:bg-primary/10 hover:border-primary/40 text-muted-foreground hover:text-foreground transition-all duration-150"
-                >
-                  {preset.label}
-                </button>
-              ))}
+            {/* 2 ▸ Scenario preset pills — lightweight inline suggestions with real-world framing */}
+            <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground/50 mr-1">Suggestions:</span>
+                {PRESET_QUERIES.map((preset) => {
+                  const isSelected = scenarioPreset === preset.scenarioPreset;
+                  const isHovered = hoveredPreset === preset.scenarioPreset;
+                  return (
+                    <div
+                      key={preset.label}
+                      className="relative group"
+                      onMouseEnter={() => setHoveredPreset(preset.scenarioPreset)}
+                      onMouseLeave={() => setHoveredPreset(null)}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearWorkspace();
+                          setQuery(preset.query);
+                          setModality(preset.modality);
+                          setTemporal(preset.temporal);
+                          setTaskHint(preset.taskHint);
+                          setScenarioId(preset.scenario ?? null);
+                          handleScenarioClick(preset.scenarioPreset);
+                        }}
+                        className={cn(
+                          "text-[11px] px-2.5 py-1 rounded-full border transition-all duration-150 select-none flex items-center gap-1.5",
+                          isSelected
+                            ? "border-primary/60 bg-primary/15 text-foreground shadow-sm shadow-primary/10"
+                            : "border-border/60 bg-transparent hover:bg-primary/10 hover:border-primary/40 text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        <span>{preset.label}</span>
+                      </button>
+
+                      {/* Tooltip on hover */}
+                      <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 hidden group-hover:flex flex-col items-center w-64 sm:w-72">
+                        <div className="rounded-lg border border-primary/30 bg-[#161616] p-2.5 text-left shadow-2xl backdrop-blur-md">
+                          <div className="flex items-center gap-1.5 mb-1 text-primary">
+                            <Info className="h-3.5 w-3.5 shrink-0" />
+                            <span className="text-[10px] font-semibold uppercase tracking-wider">Real-World Application</span>
+                          </div>
+                          <p className="text-[11px] text-foreground/90 leading-snug font-normal">
+                            {preset.description}
+                          </p>
+                        </div>
+                        {/* Triangle arrow */}
+                        <div className="w-2 h-2 -mt-1 rotate-45 border-r border-b border-primary/30 bg-[#161616]" />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Subtitle banner showing context for currently selected or hovered preset */}
+              {(() => {
+                const active = PRESET_QUERIES.find((p) => p.scenarioPreset === (hoveredPreset || scenarioPreset));
+                if (!active) return null;
+                return (
+                  <div className="flex items-start gap-2 px-3 py-1.5 rounded-md bg-primary/[0.07] border border-primary/20 text-xs text-primary/90 animate-in fade-in-50 duration-150">
+                    <Info className="h-3.5 w-3.5 shrink-0 mt-0.5 text-primary" />
+                    <div className="leading-snug">
+                      <span className="font-semibold text-foreground mr-1">{active.label}:</span>
+                      <span className="text-muted-foreground font-normal">{active.description}</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
