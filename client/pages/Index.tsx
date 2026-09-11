@@ -1,34 +1,7 @@
-import { ArrowUpRight, ChevronLeft, ChevronRight, Cpu, GitCompare, MessageSquareText, Radio, Flame, Wind, Waves, Thermometer, Globe2 } from "lucide-react";
+import { ArrowUpRight, ChevronLeft, ChevronRight, Flame, Wind, Waves, Thermometer, Globe2 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useState, useEffect, useMemo } from "react";
-
-const FEATURES = [
-  {
-    icon: MessageSquareText,
-    label: "Visual Question Answering",
-    detail: "Ask natural-language queries on optical & SAR satellite imagery.",
-    to: "/analyze",
-  },
-  {
-    icon: GitCompare,
-    label: "Change Detection & Description",
-    detail: "Quantify and describe surface alterations across bi-temporal pairs.",
-    to: "/analyze",
-  },
-  {
-    icon: Radio,
-    label: "Optical–SAR Fusion",
-    detail: "Combine cloud-penetrating radar with high-res optical channels.",
-    to: "/analyze",
-  },
-  {
-    icon: Cpu,
-    label: "Agentic Task Routing",
-    detail: "Automatic intent classification & auditable execution traces.",
-    to: "/analyze",
-  },
-];
 
 interface EonetEventItem {
   title: string;
@@ -219,24 +192,44 @@ export default function Index() {
         </div>
       </section>
 
-      {/* Feature Cards Grid */}
-      <section className="relative z-10 border-y border-border bg-background px-6 py-12">
-        <div className="mx-auto grid max-w-[1400px] grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
-          {FEATURES.map(({ icon: Icon, label, detail, to }) => (
-            <Link
-              key={label}
-              to={to}
-              className="group flex items-start gap-4 rounded-lg border-l border-border pl-4 pr-3 py-3 transition-all duration-150 hover:border-accent hover:bg-card/60"
-            >
-              <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-accent/10 border border-accent/20 text-accent transition-colors group-hover:bg-primary/10 group-hover:border-primary/30 group-hover:text-primary">
-                <Icon aria-hidden="true" className="h-4 w-4" strokeWidth={1.5} />
-              </div>
-              <span>
-                <span className="block text-body font-semibold text-foreground">{label}</span>
-                <span className="mt-1 block text-caption text-muted-foreground">{detail}</span>
-              </span>
-            </Link>
-          ))}
+      {/* Full-width Earth Observation & Capabilities Section */}
+      <section className="relative z-10 border-y border-border overflow-hidden py-16 sm:py-20 px-6 flex items-center min-h-[360px]">
+        {/* Real Satellite / Earth Observation Background Image */}
+        <div className="absolute inset-0 z-0">
+          <img
+            src="earth.jpg"
+            alt="Earth observation satellite in orbit above Earth"
+            className="h-full w-full object-cover object-right filter brightness-[0.7] contrast-110"
+          />
+          {/* Vignette gradients: protect left text legibility while letting the satellite shine on the right */}
+          <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-transparent to-background/70" />
+        </div>
+
+        <div className="relative z-10 mx-auto max-w-[1400px] w-full">
+          <div className="max-w-3xl">
+            <h2 className="text-subhead sm:text-headline font-semibold text-foreground tracking-tight mb-4">
+              From Raw Orbital Imagery to Actionable Insights
+            </h2>
+
+            <p className="text-body sm:text-lg text-foreground/90 font-normal leading-relaxed drop-shadow-sm">
+              SatQuery AI answers natural-language questions about satellite imagery — describing what&apos;s in a scene, locating specific objects and structures, quantifying change between two dates, and fusing optical with radar data to see through cloud cover. An agentic controller routes every query to the right specialist automatically, with a full audit trail for every answer.
+            </p>
+
+            <div className="mt-6 flex flex-wrap items-center gap-4">
+              <Button asChild size="sm" variant="default" className="shadow-md hover:shadow-primary/20">
+                <Link to="/analyze">
+                  Explore Capabilities
+                  <ArrowUpRight aria-hidden="true" className="ml-1.5 h-3.5 w-3.5" />
+                </Link>
+              </Button>
+              <Button asChild size="sm" variant="outline" className="border-border bg-background/60 backdrop-blur-sm hover:border-primary">
+                <Link to="/about">
+                  Learn About Architecture
+                </Link>
+              </Button>
+            </div>
+          </div>
         </div>
       </section>
 
