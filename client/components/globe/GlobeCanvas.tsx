@@ -101,17 +101,19 @@ export default function GlobeCanvas() {
       });
     }
 
-    // Default Globe Restyling
-    scene.backgroundColor = Color.fromCssColorString("hsl(220, 20%, 4%)");
+    // Cosmic Surrounding & Atmospheric Restyling
+    scene.backgroundColor = Color.fromCssColorString("#030712");
     if (scene.skyBox) {
       scene.skyBox.show = true;
     }
 
-    scene.globe.baseColor = Color.fromCssColorString("hsl(220, 20%, 6%)");
+    scene.globe.baseColor = Color.fromCssColorString("hsl(222, 47%, 5%)");
     scene.globe.showGroundAtmosphere = true;
     scene.globe.enableLighting = true;
-    scene.globe.lightingFadeOutDistance = 10000000.0;
-    scene.globe.lightingFadeInDistance = 20000000.0;
+    scene.globe.dynamicAtmosphereLighting = true;
+    scene.globe.dynamicAtmosphereLightingFromSun = true;
+    scene.globe.lightingFadeOutDistance = 15000000.0;
+    scene.globe.lightingFadeInDistance = 30000000.0;
     
     if (scene.sun) {
       scene.sun.show = true;
@@ -122,9 +124,9 @@ export default function GlobeCanvas() {
 
     if (scene.skyAtmosphere) {
       scene.skyAtmosphere.show = true;
-      scene.skyAtmosphere.brightnessShift = 0.0;
+      scene.skyAtmosphere.brightnessShift = 0.05;
       scene.skyAtmosphere.hueShift = 0.0;
-      scene.skyAtmosphere.saturationShift = 0.1;
+      scene.skyAtmosphere.saturationShift = 0.2;
     }
 
     // Setup CartoDB Dark Matter high-resolution stylized Earth imagery layer

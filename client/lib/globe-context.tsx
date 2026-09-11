@@ -135,7 +135,7 @@ export function GlobeProvider({ children }: { children: React.ReactNode }) {
       .then((result) => {
         if (!isMounted) return;
         setSatellites(result.satellites);
-        setCatalogSource(result.source === "live" ? "Orbit Service" : "Offline Catalog");
+        setCatalogSource(result.source === "live" ? "Live: Active (16k+)" : "Local Constellation (~11k)");
         setError(null);
       })
       .catch((err) => {

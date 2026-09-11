@@ -287,7 +287,8 @@ export function getSatelliteHardwareInfo(satellite: SatelliteData): SatelliteHar
         generation: "2",
         description: "Second generation satellites in smaller form factor. Features Argon Hall thrusters, high-frequency E-band backhaul, and high-density phased arrays delivering 4x capacity per satellite.",
         pictures: [
-          { url: "/starlink-v2mini.jpg", caption: "V2 mini d2c" },
+          { url: "/starlink-orbit-surroundings.jpg", caption: "V2 Mini in Low Earth Orbit & Starfield Surroundings" },
+          { url: "/starlink-v2mini.jpg", caption: "V2 mini d2c Architecture" },
           { url: "/hero-satellite.jpg", caption: "Dual Solar Array Deployment" },
         ],
         launch: {
@@ -302,6 +303,7 @@ export function getSatelliteHardwareInfo(satellite: SatelliteData): SatelliteHar
         generation: "1.5",
         description: "Upgraded first-generation satellites equipped with optical space-laser inter-satellite cross-links (ISLs) to route data without local ground station contact.",
         pictures: [
+          { url: "/starlink-orbit-surroundings.jpg", caption: "Starlink Constellation LEO Surroundings" },
           { url: "/starlink-v2mini.jpg", caption: "Starlink v1.5 with Optical Space Lasers" },
           { url: "/hero-satellite.jpg", caption: "On-Orbit Solar Configuration" },
         ],
@@ -317,6 +319,7 @@ export function getSatelliteHardwareInfo(satellite: SatelliteData): SatelliteHar
         generation: "1",
         description: "First mass-produced Starlink production series. Uses Ku/Ka-band phased array antennas, a single large solar array wing, and krypton ion propulsion.",
         pictures: [
+          { url: "/starlink-orbit-surroundings.jpg", caption: "Starlink Constellation LEO Orbit" },
           { url: "/hero-satellite.jpg", caption: "Starlink v1.0 Operational Satellite" },
         ],
         launch: {
@@ -350,6 +353,7 @@ export function getSatelliteHardwareInfo(satellite: SatelliteData): SatelliteHar
       generation: "Crewed Orbital Complex",
       description: "Permanently crewed low Earth orbit microgravity scientific research laboratory traveling at ~27,600 km/h with multinational research modules.",
       pictures: [
+        { url: "/starlink-orbit-surroundings.jpg", caption: "Orbital Spacecraft Surrounding Environment" },
         { url: "/hero-satellite.jpg", caption: "Orbital Habitat & Solar Truss" },
       ],
       launch: {
@@ -366,6 +370,7 @@ export function getSatelliteHardwareInfo(satellite: SatelliteData): SatelliteHar
       generation: "Global Positioning System",
       description: "Medium Earth Orbit navigation satellite transmitting atomic clock-synchronized PNT microwave radio signals on L1, L2, and L5 frequencies.",
       pictures: [
+        { url: "/starlink-orbit-surroundings.jpg", caption: "MEO Orbital Track & Deep Space" },
         { url: "/hero-satellite.jpg", caption: "GPS Navigation Bus" },
       ],
       launch: {
@@ -381,6 +386,7 @@ export function getSatelliteHardwareInfo(satellite: SatelliteData): SatelliteHar
     generation: "Operational",
     description: `Active orbital platform performing ${satellite.type.toUpperCase()} observations and telemetry downlink in Low Earth Orbit.`,
     pictures: [
+      { url: "/starlink-orbit-surroundings.jpg", caption: "Orbital Environment & Earth Limb View" },
       { url: "/hero-satellite.jpg", caption: "Orbital Spacecraft Configuration" },
     ],
     launch: {
@@ -396,37 +402,41 @@ export interface SatelliteCatalogResult {
   source: "live" | "fallback";
 }
 
-export async function fetchSatelliteCatalog(): Promise<SatelliteCatalogResult> {
-  const orbitServiceUrl = import.meta.env.VITE_ORBIT_SERVICE_URL || "http://localhost:8081";
-
+export async function fetchSatelliteCatalog(constellation: string = "active"): Promise<SatelliteCatalogResult> {
   try {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timeoutId = controller ? setTimeout(() => controller.abort(), 1500) : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
 
-    const res = await fetch(`${orbitServiceUrl}/api/tle`, {
+    const res = await fetch(`/api/satellites/${constellation}`, {
       signal: controller?.signal,
     });
     if (timeoutId) clearTimeout(timeoutId);
 
     if (!res.ok) {
-      throw new Error(`Failed to fetch from orbit-service: ${res.statusText}`);
+      throw new Error(`Failed to fetch live satellite data: ${res.statusText}`);
     }
 
     const contentType = res.headers.get("content-type") || "";
     if (contentType.includes("text/html")) {
-      throw new Error("Orbit service returned HTML instead of TLE data");
+      throw new Error("Received HTML instead of TLE data");
     }
 
     const text = await res.text();
     const parsed = parseTLECatalog(text);
 
     if (parsed.length === 0) {
-      throw new Error("Orbit service returned no valid TLE entries");
+      throw new Error("Received no valid TLE entries");
     }
 
     return { satellites: parsed, source: "live" };
   } catch (err) {
-    console.warn("Orbit service fetch error or timeout, using fallback hardcoded catalog:", err);
-    return { satellites: parseTLECatalog(HARDCODED_TLE_STRING), source: "fallback" };
+    console.warn("Live CelesTrak satellite fetch error, using high-volume dataset fallback:", err);
+    try {
+      const { MOCK_TLES } = await import("@/lib/mock-tles");
+      const fallbackTLE = MOCK_TLES[constellation] || MOCK_TLES["active"] || MOCK_TLES["starlink"] || HARDCODED_TLE_STRING;
+      return { satellites: parseTLECatalog(fallbackTLE), source: "fallback" };
+    } catch {
+      return { satellites: parseTLECatalog(HARDCODED_TLE_STRING), source: "fallback" };
+    }
   }
 }

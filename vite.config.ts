@@ -100,9 +100,11 @@ function proxyApiPlugin(): Plugin {
           return tle;
         }
       }
-      // If group not explicitly matched, try starlink or active as fallback
-      if (group === 'active' || group === 'starlink') return null;
-      return getConstellationTLE('active') || getConstellationTLE('starlink');
+      // If group not explicitly matched (e.g. active), return starlink cache (~11k satellites)
+      if (group !== 'starlink') {
+        return getConstellationTLE('starlink');
+      }
+      return null;
     } catch (err) {
       console.warn("Failed to load local TLE cache:", err);
       return null;
@@ -117,17 +119,18 @@ function proxyApiPlugin(): Plugin {
           const rawConstellation = req.url.split("/").pop();
           const constellation = rawConstellation?.split('?')[0].toLowerCase() || "active";
           
-          const celestrak_map: Record<string, string> = {
-            "starlink": "GROUP=starlink",
-            "active": "GROUP=active",
-            "stations": "GROUP=stations",
-            "gps": "GROUP=gps-ops",
-            "weather": "GROUP=weather",
-            "resource": "GROUP=resource",
-            "science": "GROUP=science",
-            "cubesat": "GROUP=cubesat",
+          const mirrorMap: Record<string, string> = {
+            "starlink": "starlink.tle",
+            "active": "active.tle",
+            "stations": "stations.tle",
+            "gps": "gps-ops.tle",
+            "weather": "weather.tle",
+            "resource": "resource.tle",
+            "science": "science.tle",
+            "cubesat": "cubesat.tle",
           };
-          const query = celestrak_map[constellation];
+
+          const mirrorFile = mirrorMap[constellation] || "active.tle";
 
           const fallback = () => {
             if (res.headersSent) return;
@@ -144,45 +147,45 @@ function proxyApiPlugin(): Plugin {
             }
           };
 
-          if (query) {
-            const options = {
-              headers: { 'User-Agent': 'OrbitalPulse-Dev/1.0 (Mozilla/5.0 Windows)' }
-            };
+          const options = {
+            headers: { 'User-Agent': 'OrbitalPulse-Dev/1.0 (Mozilla/5.0 Windows)' }
+          };
 
-            let finished = false;
-            const timeoutId = setTimeout(() => {
-              if (finished) return;
+          // Fetch from high-speed CelesTrak GitHub CDN mirror (avoids residential/ISP port blocks)
+          let finished = false;
+          const mirrorUrl = `https://raw.githubusercontent.com/satvisorcom/satvisor-data/master/celestrak/tle/${mirrorFile}`;
+
+          const timeoutId = setTimeout(() => {
+            if (finished) return;
+            finished = true;
+            mirrorReq.destroy();
+            fallback();
+          }, 8000);
+
+          const mirrorReq = https.get(mirrorUrl, options, (mirrorRes) => {
+            if (finished || res.headersSent) return;
+            if (mirrorRes.statusCode && mirrorRes.statusCode >= 200 && mirrorRes.statusCode < 300) {
+              clearTimeout(timeoutId);
               finished = true;
-              request.destroy();
-              fallback();
-            }, 1500);
-
-            const request = https.get(`https://celestrak.org/NORAD/elements/gp.php?${query}&FORMAT=tle`, options, (celestrakRes) => {
-              if (finished || res.headersSent) return;
-              if (celestrakRes.statusCode && celestrakRes.statusCode >= 200 && celestrakRes.statusCode < 300) {
-                clearTimeout(timeoutId);
-                finished = true;
-                res.writeHead(celestrakRes.statusCode, celestrakRes.headers);
-                celestrakRes.pipe(res);
-              } else {
-                clearTimeout(timeoutId);
-                finished = true;
-                fallback();
-              }
-            });
-
-            request.on('error', () => {
-              if (finished) return;
+              res.writeHead(mirrorRes.statusCode, {
+                'Content-Type': 'text/plain',
+                'Cache-Control': 'public, max-age=300'
+              });
+              mirrorRes.pipe(res);
+            } else {
               clearTimeout(timeoutId);
               finished = true;
               fallback();
-            });
-            return;
-          } else {
-            res.statusCode = 400;
-            res.end("Invalid constellation");
-            return;
-          }
+            }
+          });
+
+          mirrorReq.on('error', () => {
+            if (finished) return;
+            clearTimeout(timeoutId);
+            finished = true;
+            fallback();
+          });
+          return;
         }
 
         if (req.url && req.url.startsWith("/api/ai/satellite-info") && req.method === "POST") {
