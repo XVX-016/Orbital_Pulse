@@ -259,6 +259,138 @@ export function parseTLECatalog(tleText: string): SatelliteData[] {
   return satellites;
 }
 
+export interface SatellitePicture {
+  url: string;
+  caption: string;
+}
+
+export interface SatelliteHardwareInfo {
+  hardware: string;
+  generation: string;
+  description: string;
+  pictures: SatellitePicture[];
+  launch?: {
+    site: string;
+    vehicle: string;
+    orbit: string;
+  };
+}
+
+export function getSatelliteHardwareInfo(satellite: SatelliteData): SatelliteHardwareInfo {
+  const nameUpper = satellite.name.toUpperCase();
+  const idNum = parseInt(satellite.noradId, 10);
+
+  if (nameUpper.includes("STARLINK")) {
+    if (satellite.subType === "v2-mini" || idNum >= 55000) {
+      return {
+        hardware: "v2 mini",
+        generation: "2",
+        description: "Second generation satellites in smaller form factor. Features Argon Hall thrusters, high-frequency E-band backhaul, and high-density phased arrays delivering 4x capacity per satellite.",
+        pictures: [
+          { url: "/starlink-v2mini.jpg", caption: "V2 mini d2c" },
+          { url: "/hero-satellite.jpg", caption: "Dual Solar Array Deployment" },
+        ],
+        launch: {
+          site: "Cape Canaveral SFS / Vandenberg SFB",
+          vehicle: "Falcon 9 Block 5",
+          orbit: "Low Earth Orbit (~530 km, 43° / 53°)",
+        },
+      };
+    } else if (satellite.subType === "Gen2-Transit" || (idNum >= 47000 && idNum < 55000)) {
+      return {
+        hardware: "v1.5",
+        generation: "1.5",
+        description: "Upgraded first-generation satellites equipped with optical space-laser inter-satellite cross-links (ISLs) to route data without local ground station contact.",
+        pictures: [
+          { url: "/starlink-v2mini.jpg", caption: "Starlink v1.5 with Optical Space Lasers" },
+          { url: "/hero-satellite.jpg", caption: "On-Orbit Solar Configuration" },
+        ],
+        launch: {
+          site: "Cape Canaveral SFS (SLC-40) / KSC LC-39A",
+          vehicle: "Falcon 9",
+          orbit: "Low Earth Orbit (~540 km, 53.2°)",
+        },
+      };
+    } else {
+      return {
+        hardware: "v1.0",
+        generation: "1",
+        description: "First mass-produced Starlink production series. Uses Ku/Ka-band phased array antennas, a single large solar array wing, and krypton ion propulsion.",
+        pictures: [
+          { url: "/hero-satellite.jpg", caption: "Starlink v1.0 Operational Satellite" },
+        ],
+        launch: {
+          site: "Cape Canaveral Air Force Station (CCAFS)",
+          vehicle: "Falcon 9",
+          orbit: "Low Earth Orbit (~550 km, 53.0°)",
+        },
+      };
+    }
+  }
+
+  if (satellite.isISRO) {
+    return {
+      hardware: "IRS Optical / C-Band SAR",
+      generation: "ISRO Earth Observation",
+      description: "Indian Space Research Organisation (ISRO) remote-sensing satellite engineered for high-resolution cartography, ocean color monitoring, and disaster risk evaluation.",
+      pictures: [
+        { url: "/hero-satellite.jpg", caption: "ISRO Earth Observation Payload" },
+      ],
+      launch: {
+        site: "Satish Dhawan Space Centre (SDSC SHAR), Sriharikota",
+        vehicle: "PSLV / GSLV",
+        orbit: "Sun-Synchronous Polar LEO (~630–800 km)",
+      },
+    };
+  }
+
+  if (nameUpper.includes("ISS") || nameUpper.includes("TIANGONG") || nameUpper.includes("CSS")) {
+    return {
+      hardware: "Modular Space Station",
+      generation: "Crewed Orbital Complex",
+      description: "Permanently crewed low Earth orbit microgravity scientific research laboratory traveling at ~27,600 km/h with multinational research modules.",
+      pictures: [
+        { url: "/hero-satellite.jpg", caption: "Orbital Habitat & Solar Truss" },
+      ],
+      launch: {
+        site: "Baikonur Cosmodrome / Wenchang / KSC",
+        vehicle: "Proton-K / Long March 5B / Space Shuttle",
+        orbit: "Low Earth Orbit (~415 km, 51.6°)",
+      },
+    };
+  }
+
+  if (nameUpper.includes("GPS")) {
+    return {
+      hardware: "Navstar Block II/III",
+      generation: "Global Positioning System",
+      description: "Medium Earth Orbit navigation satellite transmitting atomic clock-synchronized PNT microwave radio signals on L1, L2, and L5 frequencies.",
+      pictures: [
+        { url: "/hero-satellite.jpg", caption: "GPS Navigation Bus" },
+      ],
+      launch: {
+        site: "Cape Canaveral Space Force Station",
+        vehicle: "Delta IV / Falcon 9",
+        orbit: "Medium Earth Orbit (~20,200 km, 55.0°)",
+      },
+    };
+  }
+
+  return {
+    hardware: `${satellite.type.toUpperCase()} Satellite Bus`,
+    generation: "Operational",
+    description: `Active orbital platform performing ${satellite.type.toUpperCase()} observations and telemetry downlink in Low Earth Orbit.`,
+    pictures: [
+      { url: "/hero-satellite.jpg", caption: "Orbital Spacecraft Configuration" },
+    ],
+    launch: {
+      site: "International Spaceport",
+      vehicle: "Orbital Launch Vehicle",
+      orbit: "Earth Orbit",
+    },
+  };
+}
+
 export interface SatelliteCatalogResult {
   satellites: SatelliteData[];
   source: "live" | "fallback";
@@ -266,7 +398,7 @@ export interface SatelliteCatalogResult {
 
 export async function fetchSatelliteCatalog(): Promise<SatelliteCatalogResult> {
   const orbitServiceUrl = import.meta.env.VITE_ORBIT_SERVICE_URL || "http://localhost:8081";
-  
+
   try {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timeoutId = controller ? setTimeout(() => controller.abort(), 1500) : null;
@@ -280,7 +412,6 @@ export async function fetchSatelliteCatalog(): Promise<SatelliteCatalogResult> {
       throw new Error(`Failed to fetch from orbit-service: ${res.statusText}`);
     }
 
-    // Guard against SPA catch-all returning index.html with 200 OK
     const contentType = res.headers.get("content-type") || "";
     if (contentType.includes("text/html")) {
       throw new Error("Orbit service returned HTML instead of TLE data");

@@ -290,12 +290,42 @@ export default function Globe() {
         </div>
       )}
 
-      {/* AI Satellite Info Panel */}
-      {selectedSat && (
+      {/* Satellite Inspector & Hardware Info Panel */}
+      {selectedSat ? (
         <SatelliteInfoPanel 
           satellite={selectedSat} 
-          onClose={() => setSelectedSat(null)} 
+          onClose={handleCloseInspector}
+          onTrack={() => handleSelectSatellite(selectedSat)}
         />
+      ) : isInspectorOpen && (
+        <aside
+          className="pointer-events-auto absolute bottom-0 right-0 top-16 z-30 w-full max-w-sm border-l border-zinc-800 bg-[#0b0f17]/95 p-6 backdrop-blur-xl transition-transform duration-300 sm:w-[380px]"
+          aria-hidden={!isInspectorOpen}
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="label-micro mb-1 text-cyan-400 flex items-center gap-1.5 font-medium">
+                <Radio className="h-3 w-3 animate-pulse" /> Live Telemetry
+              </p>
+              <h2 className="text-subhead font-semibold text-foreground">Satellite Inspector</h2>
+            </div>
+            <button
+              type="button"
+              onClick={handleCloseInspector}
+              aria-label="Close satellite inspector"
+              className="flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-zinc-800 hover:text-foreground"
+            >
+              <X aria-hidden="true" className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-8 rounded-lg border border-dashed border-zinc-800 p-6 text-center text-xs text-zinc-400 space-y-2">
+            <p className="text-zinc-300 font-medium">No Satellite Selected</p>
+            <p className="text-[11px] leading-relaxed">
+              Click any satellite point on the 3D globe or use the search bar above to view its real-time telemetry, hardware generation, pictures, and launch specs.
+            </p>
+          </div>
+        </aside>
       )}
 
       {/* Bottom Control Toolbar */}
@@ -347,86 +377,6 @@ export default function Globe() {
           <ChevronRight aria-hidden="true" className="h-4 w-4" />
         </button>
       </div>
-
-      {/* Satellite Inspector Panel */}
-      <aside
-        className={cn(
-          "pointer-events-auto absolute bottom-0 right-0 top-16 z-30 w-full max-w-sm border-l border-border bg-popover/95 p-6 backdrop-blur-xl transition-transform duration-300 sm:w-[380px]",
-          isInspectorOpen ? "translate-x-0" : "translate-x-full",
-        )}
-        aria-hidden={!isInspectorOpen}
-      >
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="label-micro mb-1 text-primary flex items-center gap-1.5 font-medium">
-              <Radio className="h-3 w-3 animate-pulse" /> Live Telemetry
-            </p>
-            <h2 className="text-subhead font-semibold text-foreground">Satellite Inspector</h2>
-          </div>
-          <button
-            type="button"
-            onClick={handleCloseInspector}
-            aria-label="Close satellite inspector and reset view"
-            className="flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-card hover:text-foreground"
-          >
-            <X aria-hidden="true" className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Selected Satellite Card */}
-        {selectedSat ? (
-          <div className="mt-4 rounded-lg border border-border/80 bg-card/80 p-3.5 backdrop-blur-md">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent/30 text-accent">
-                  <Satellite className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-foreground text-sm">{selectedSat.name}</h3>
-                  <p className="text-[11px] text-muted-foreground">NORAD ID: {selectedSat.noradId}</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => handleSelectSatellite(selectedSat)}
-                className="flex items-center gap-1 rounded border border-border bg-popover px-2.5 py-1 text-xs text-primary hover:bg-accent/30 transition-colors"
-                title="Fly camera to satellite"
-              >
-                <Crosshair className="h-3 w-3" />
-                <span>Track</span>
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-4 rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
-            Click any satellite point on the globe or use search to select object.
-          </div>
-        )}
-
-        {/* Inspector Fields Table */}
-        <div className="mt-6 divide-y divide-border border-y border-border">
-          {inspectorData.map(([label, value]) => (
-            <div key={label} className="flex items-center justify-between gap-4 py-3.5">
-              <span className="label-micro text-muted-foreground">{label}</span>
-              <span className="text-caption font-mono font-medium text-foreground text-right">{value}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Coordinates readout if satellite is selected */}
-        {selectedPos && (
-          <div className="mt-6 rounded-md bg-card/60 p-3 text-[11px] font-mono text-muted-foreground space-y-1">
-            <div className="flex justify-between">
-              <span>LATITUDE:</span>
-              <span className="text-foreground">{selectedPos.latitude.toFixed(4)}°</span>
-            </div>
-            <div className="flex justify-between">
-              <span>LONGITUDE:</span>
-              <span className="text-foreground">{selectedPos.longitude.toFixed(4)}°</span>
-            </div>
-          </div>
-        )}
-      </aside>
     </div>
   );
 }
