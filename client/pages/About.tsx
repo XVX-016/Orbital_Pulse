@@ -136,7 +136,7 @@ export default function About() {
               <h2 className="text-subhead font-semibold text-foreground">SatQuery AI Agentic Specialists</h2>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-xl border border-white/15 bg-black/65 p-5 backdrop-blur-md transition-all duration-200 hover:border-primary/50 hover:bg-black/80 shadow-lg">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/20 text-primary">
@@ -254,9 +254,9 @@ export default function About() {
 
         {/* Section 2.5: Honest Scope Notes */}
         <section className="border-t border-white/10 pt-12">
-          <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-6 sm:p-8 backdrop-blur-sm">
+          <div className="rounded-xl border border-white/10 bg-[#121212]/90 p-6 sm:p-8 backdrop-blur-sm shadow-lg">
             <div className="flex items-center gap-3 mb-4">
-              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-amber-500/20 text-amber-400">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/20 text-primary">
                 <ShieldAlert className="h-5 w-5" />
               </div>
               <div>
@@ -266,15 +266,15 @@ export default function About() {
             </div>
             <ul className="space-y-3 text-xs text-muted-foreground leading-relaxed">
               <li className="flex items-start gap-2.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                <span className="h-1.5 w-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
                 <span><strong className="text-foreground font-medium">SAR Fusion Validation:</strong> SAR fusion is validated on synthetic backscatter data for regions without real Sentinel-1 coverage yet.</span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                <span className="h-1.5 w-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
                 <span><strong className="text-foreground font-medium">Global STAC Ingestion:</strong> Live STAC fallback trades latency for global coverage outside pre-cataloged regions.</span>
               </li>
               <li className="flex items-start gap-2.5">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                <span className="h-1.5 w-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
                 <span><strong className="text-foreground font-medium">Evaluation Scoring:</strong> Benchmark evaluation is a manually-reviewed sample against real VRSBench/RSVQA-LR items, not full automated scoring.</span>
               </li>
             </ul>
