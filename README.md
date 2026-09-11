@@ -1,6 +1,6 @@
 # SatQuery AI — Agentic Remote-Sensing VQA & Multi-Modal Analysis Platform
 
-SatQuery AI is a production-ready, agentic remote-sensing application featuring natural-language VQA, spatial object grounding, bi-temporal change analysis, and synthetic SAR-optical fusion over satellite imagery.
+SatQuery AI is an agentic vision-language platform for satellite and remote-sensing imagery, built for **ISRO PS-26167**. It combines fine-tuned 4-bit GeoChat-7B multimodal intelligence with an independent deterministic geospatial metrics engine, a live STAC catalog with on-demand global fallback, and a PostGIS-backed analysis history with interactive map exploration.
 
 ---
 
@@ -11,8 +11,8 @@ SatQuery AI is a production-ready, agentic remote-sensing application featuring 
 │                            User / React SPA (Port 5173)                      │
 │                                                                             │
 │   ┌───────────────────────┐   ┌───────────────────┐   ┌───────────────────┐ │
-│   │ 3D Cesium Satellite   │   │ SatQuery Agentic  │   │ Bi-Temporal       │ │
-│   │ Tracking Globe        │   │ AI Interface      │   │ Change Visualizer │ │
+│   │ 3D Satellite Tracking │   │ SatQuery Agentic  │   │ PostGIS Spatial   │ │
+│   │ Constellation Globe   │   │ AI Interface      │   │ History & Map View│ │
 │   └───────────────────────┘   └─────────┬─────────┘   └───────────────────┘ │
 └─────────────────────────────────────────┼───────────────────────────────────┘
                                           │
@@ -20,84 +20,110 @@ SatQuery AI is a production-ready, agentic remote-sensing application featuring 
                                           │
     ┌─────────────────────────────────────▼────────────────────────────────┐
     │                     SatQuery Agentic Controller                      │
-    │  - Rule-Based Task Classifier (Task Intent, Modality & Temporality)  │
-    │  - Audit Execution Trace Logger                                      │
-    └──────────────┬──────────────────┬───────────────────┬────────────────┘
-                   │                  │                   │
-  ┌────────────────▼───┐    ┌─────────▼─────────┐   ┌─────▼───────────────┐
-  │ Optical VQA        │    │ Change-VQA        │   │ SAR-Optical Fusion  │
-  │ Specialist         │    │ Specialist        │   │ Specialist          │
-  │ (GeoChat-7B 4-bit) │    │ (Bi-temporal VQA) │   │ (Radar/Optical)     │
-  └────────────────────┘    └───────────────────┘   └─────────────────────┘
+    │  - Task Intent Routing (VQA, Grounding, Change, SAR Fusion, Metrics) │
+    │  - Independent Deterministic Geospatial Metrics (NDVI, Land Cover)   │
+    │  - Live STAC Catalog Integration (Earth Search / AWS Element84)      │
+    │  - PostGIS Spatial Audit & History Logging (Port 5432)               │
+    └─────────────────────────────────────┬────────────────────────────────┘
+                                          │
+                    ┌─────────────────────┴─────────────────────┐
+                    │                                           │
+  ┌─────────────────▼─────────────────┐       ┌─────────────────▼─────────────────┐
+  │ Local GPU Inference Engine        │       │ Deterministic Geospatial Metrics  │
+  │ - GeoChat-7B 4-bit (BitsAndBytes) │       │ - Raw GeoTIFF Pixel Computation   │
+  │ - QLoRA BigEarthNet Adapter       │       │ - NDVI, Land Cover, Change Area   │
+  │ - Python 3.10 CUDA venv           │       │ - Cross-Check Validation Layer    │
+  └───────────────────────────────────┘       └───────────────────────────────────┘
 ```
 
 ---
 
-## 🚀 Quick Start & Installation
+## 🚀 System Run Configuration
 
-### Prerequisites
-- **Node.js** ≥ 20 & **npm** ≥ 10
-- **Python** ≥ 3.10 with PyTorch CUDA support
-- **NVIDIA GPU** with ≥ 8GB VRAM (for 4-bit GeoChat-7B local LLM execution)
+### The Two-Part Architecture (Why This Split Exists)
 
-### Environment Configuration
-Copy `.env.example` to `.env` and set your Cesium ION token:
-```bash
-cp .env.example .env
-# Edit .env and set VITE_CESIUM_ION_TOKEN
-```
+SatQuery AI operates as a coordinated hybrid stack:
+1. **Containerized Core & Infrastructure (`docker compose`)**:
+   - **PostGIS 3.4 (PostgreSQL 16)**: Spatial database storing analyzed bounding boxes, imagery footprints, and session history.
+   - **SatQuery Service (FastAPI)**: Controller, task routing, deterministic pixel metrics engine, and STAC catalog daemon.
+   - **React SPA**: Modern frontend interface on port `5173`.
+2. **Local GPU Inference Process (`ml/geochat/venv`)**:
+   - Runs GeoChat-7B 4-bit with BitsAndBytes quantization directly on host NVIDIA GPU hardware.
+   - **Why this split exists**: Complete containerization of GeoChat-7B with CUDA 12.1 kernel compilation across Docker layers is brittle and highly hardware-dependent. Direct host execution in a Python 3.10 venv (`ml/geochat/venv/Scripts/python.exe` on Windows or `ml/geochat/venv/bin/python` on Linux) is the tested, verified, and high-performance execution path.
 
 ---
 
-## ▶️ Primary Run Method — Local venv (Verified & Recommended)
+## ▶️ Setup & Execution Guide
 
-This is the tested, working run path used for all demos and evaluations.
-
-### Step 1 — Frontend & Orbit Service
+### Step 1 — Start Infrastructure with Docker Compose
+Start the spatial database and backend controller services:
 ```bash
-# From repo root
+docker compose up -d postgis satquery-service
+```
+Or start the complete containerized stack including the frontend:
+```bash
+docker compose up -d
+```
+
+### Step 2 — Start GeoChat-7B GPU Inference Process
+In your host environment with NVIDIA GPU access, activate the prepared virtual environment (see [`ml/geochat/SETUP.md`](ml/geochat/SETUP.md) for first-time environment creation):
+
+```powershell
+# Windows (PowerShell):
+.\ml\geochat\venv\Scripts\Activate.ps1
+
+# Linux / macOS:
+source ml/geochat/venv/bin/activate
+```
+
+Launch the inference worker or run the standalone verification:
+```bash
+# Verify local GPU inference
+python ml/geochat/test_inference.py
+```
+
+### Step 3 — Verify Stack Connection (`GET /health`)
+Before assuming the system is operational, verify that the controller has successfully connected to the GeoChat model:
+
+```bash
+curl http://localhost:8082/health
+```
+
+**Expected Response:**
+```json
+{
+  "status": "ok",
+  "service": "SatQuery AI Agentic Service",
+  "model": "MBZUAI/geochat-7B (4-bit)",
+  "geochat_loaded": true,
+  "geochat_error": null,
+  "peak_vram_gb": 4.44
+}
+```
+
+> ⚠️ **CRITICAL**: If `geochat_loaded` is `false`, the controller is in degraded mode. Check `geochat_error` in the JSON response to diagnose local inference initialization before testing VQA or Grounding queries.
+
+### Step 4 — Run the Frontend
+If not running the frontend inside Docker:
+```bash
 npm install
 npm run dev
-# → React SPA + Express orbit proxy on http://localhost:8080
+# → Vite dev server running on http://localhost:5173
 ```
-
-### Step 2 — SatQuery AI Service (Python venv)
-```bash
-cd satquery-service
-pip install -r requirements.txt   # first time only
-
-# Start FastAPI agentic service on port 8082
-uvicorn main:app --host 0.0.0.0 --port 8082
-```
-
-Once you see `INFO: Application startup complete.` the `/api/analyze` endpoint is live and the React UI will connect automatically.
-
-> 📖 **GeoChat-7B Model Setup**: For complete details on downloading and initializing the 4-bit GeoChat-7B LLM engine, see [`ml/geochat/SETUP.md`](ml/geochat/SETUP.md).
 
 ---
 
-## 🐳 Docker Compose (Fully Verified)
+## 🌟 Core Features
 
-All infrastructure services build and start cleanly, and the complete multi-container stack has been fully verified:
-
-```bash
-docker compose up --build
-```
-
-**Services:**
-- **frontend**: React SPA served via Nginx on port `5173`
-- **satquery-service**: FastAPI agentic service on port `8082`
-- **postgis**: PostgreSQL 16 + PostGIS 3.4 database on port `5432`
-
-Import verification test inside the container:
-```bash
-docker build -t satquery-service-test ./satquery-service
-docker run --rm satquery-service-test python -c \
-  "from grounding_parser import parse_geochat_grounding; print('OK')"
-# → OK: grounding_parser imported successfully
-```
-
-> **Note:** When running in Docker, the Hugging Face cache is mounted inside the container. If weights/packages (such as the large GeoChat package tree) are not loaded, the SatQuery AI service starts in a degraded fallback mode but maintains active health checks. For a fully live local execution, see the verified venv instructions above.
+- **Agentic Multi-Specialist Controller**:
+  - **Visual Question Answering (VQA)**: Zero-shot natural language QA over high-resolution optical satellite imagery.
+  - **Spatial Object Grounding**: Localizes buildings, airfields, and infrastructure with normalized bounding boxes `[ymin, xmin, ymax, xmax]`.
+  - **Bi-Temporal Change-VQA**: Pair-wise image comparison quantifying deforestation, flood inundation, and disaster impact.
+  - **SAR-Optical Fusion**: Ingests synthetic aperture radar (SAR) channels for cloud-penetrating and night-time analysis.
+- **Deterministic Geospatial Metrics Engine**: Computes NDVI, land cover distribution, and spectral change area directly from GeoTIFF pixel data, verifying the model's qualitative answer.
+- **Live STAC Catalog**: Ingests imagery from AWS Element84 / Earth Search covering curated regions with on-demand fallback for global coordinates.
+- **PostGIS Spatial History**: Persists analysis metadata, bounding boxes, and image footprints with interactive Leaflet map exploration.
+- **Live 3D Satellite Tracking**: High-performance CesiumJS globe tracking 16,000+ active satellites and constellations in real-time.
 
 ---
 
@@ -126,9 +152,10 @@ python ml/geochat/finetune/eval_comparison.py
 | Feature Component | Implementation Status | Technical Limitation / Scope Boundary |
 |---|---|---|
 | **Optical VQA & Grounding** | **Fully Implemented** | Powered by 4-bit quantized GeoChat-7B with custom `answer_scoring.py` keyword-recall and grounding markup stripping (`<p>...</p>`). |
-| **SAR-Optical Fusion** | **Synthetic Demonstration** | Tested & verified using synthetic SAR backscatter arrays (`ml/geochat/test_sar_fusion.py`). Real Sentinel-1 IW GRD radar ingestion is scoped out. |
-| **Bi-Temporal Change VQA** | **Categorical "What" Only** | Multi-image VQA classifies *what* changed between before/after scenes. Spatial mask pixel-level *where* localization is not yet integrated into the VQA pipeline. |
-| **Benchmark Scoring** | **Manual Eyeball Reviewed** | Evaluated via a 10-sample manual eyeball review (`satquery-service/eval/manual_review.md`) due to missing full real dataset image downloads. |
+| **Deterministic Metrics** | **Fully Implemented** | NDVI, land cover, and change-area computed from pixel arrays — independent of and cross-checked against the model's output. |
+| **SAR-Optical Fusion** | **Synthetic Demonstration** | Validated on synthetic backscatter data for regions without real Sentinel-1 coverage yet (`satquery-service/test_sar_fusion.py`). |
+| **Live STAC Fallback** | **Global Coverage** | Curated STAC imagery is cached; live STAC fallback trades network latency for global coverage outside pre-cataloged regions. |
+| **Benchmark Scoring** | **Manual Eyeball Reviewed** | Evaluated via a 10-sample manual review against real VRSBench/RSVQA-LR items (`satquery-service/eval/manual_review.md`). |
 
 ---
 
@@ -146,4 +173,8 @@ python satquery-service/test_sar_fusion.py
 
 # 4. Change-VQA Specialist Verification
 python satquery-service/test_change_vqa.py
+
+# 5. Deterministic Geospatial Metrics Verification
+python satquery-service/test_geospatial_metrics.py
 ```
+

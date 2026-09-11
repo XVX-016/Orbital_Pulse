@@ -1,11 +1,15 @@
 import { useState, useMemo, useEffect } from "react";
-import { ChevronRight, Layers3, Pause, Play, Search, X, Satellite, Radio, Crosshair, Globe as GlobeIcon } from "lucide-react";
+import { ChevronRight, Layers3, Pause, Play, Search, X, Satellite, Radio, Crosshair, Globe as GlobeIcon, Activity } from "lucide-react";
+import { useQuery } from '@tanstack/react-query';
 import { cn } from "@/lib/utils";
 import { useGlobe } from "@/lib/globe-context";
+import { parseTLECatalog } from "@/lib/satellite-service";
+import { SatelliteInfoPanel } from "@/components/globe/SatelliteInfoPanel";
 
 export default function Globe() {
   const {
     satellites,
+    setSatellites,
     selectedSat,
     selectedPos,
     setSelectedSat,
@@ -14,13 +18,40 @@ export default function Globe() {
     isPlaying,
     setIsPlaying,
     catalogSource,
+    setCatalogSource,
     error,
+    setError,
   } = useGlobe();
 
   const [layersVisible, setLayersVisible] = useState(true);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [constellation, setConstellation] = useState<
+    'active' | 'starlink' | 'stations' | 'gps' | 'weather' | 'resource' | 'science' | 'cubesat'
+  >('active');
+
+  const { data: tleData, isLoading, error: queryError } = useQuery({
+    queryKey: ['satellite-tles', constellation],
+    queryFn: async () => {
+      const res = await fetch(`/api/satellites/${constellation}`);
+      if (!res.ok) throw new Error('Network response failed');
+      return res.text();
+    },
+    staleTime: 1000 * 60 * 60
+  });
+
+  useEffect(() => {
+    if (tleData) {
+      setSatellites(parseTLECatalog(tleData));
+      setCatalogSource(`Live: ${constellation}`);
+      setError(null);
+    }
+    if (queryError) {
+      setError(queryError.message);
+    }
+  }, [tleData, queryError, constellation, setSatellites, setCatalogSource, setError]);
+
 
   // Automatically open inspector drawer when a satellite is selected (e.g. clicked on globe or searched)
   useEffect(() => {
@@ -70,8 +101,43 @@ export default function Globe() {
     ];
   }, [selectedSat, selectedPos]);
 
+  const constellationLabels: Record<string, string> = {
+    active: 'All Active (16k+)',
+    starlink: 'Starlink (~11k)',
+    stations: 'Space Stations',
+    gps: 'GPS Constellation',
+    weather: 'Weather',
+    resource: 'Earth Resource',
+    science: 'Science',
+    cubesat: 'CubeSats',
+  };
+
   return (
     <div className="pointer-events-none relative h-[calc(100vh-4rem)] overflow-hidden">
+      {/* Top HUD: Constellation Picker */}
+      <div className="pointer-events-auto absolute top-4 left-4 z-30 flex gap-2 bg-zinc-950/80 backdrop-blur-md p-1.5 rounded-lg border border-zinc-800">
+        <div className="flex flex-wrap gap-2">
+          {(['active', 'starlink', 'stations', 'gps', 'weather', 'resource', 'science', 'cubesat'] as const).map((group) => (
+            <button
+              key={group}
+              onClick={() => setConstellation(group)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium tracking-wider transition ${
+                constellation === group
+                  ? 'bg-cyan-500 text-black shadow-sm font-semibold'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+              }`}
+            >
+              {constellationLabels[group] || group}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Status & Loader Indicator */}
+      <div className="pointer-events-auto absolute bottom-4 left-1/2 -translate-x-1/2 md:left-4 md:-translate-x-0 md:bottom-28 z-30 flex items-center gap-3 bg-zinc-950/80 backdrop-blur-md px-3 py-2 rounded-lg border border-zinc-800 text-xs text-zinc-300">
+        <Activity className={`w-4 h-4 ${isLoading ? 'animate-spin text-cyan-400' : 'text-emerald-400'}`} />
+        <span>{isLoading ? 'Streaming Ephemeris...' : error ? 'Error loading data' : 'Orbital Pulse Live'}</span>
+      </div>
       {error && (
         <div className="pointer-events-auto absolute top-4 left-1/2 z-50 -translate-x-1/2 rounded-md bg-destructive/90 px-4 py-2 text-sm font-medium text-destructive-foreground backdrop-blur shadow-lg border border-destructive/50 flex items-center gap-2">
           <span>{error}</span>
@@ -108,7 +174,7 @@ export default function Globe() {
           {isSearchFocused && filteredSatellites.length > 0 && (
             <div className="absolute left-0 right-0 top-12 z-30 max-h-64 overflow-y-auto rounded-md border border-border bg-card/95 p-1 shadow-2xl backdrop-blur-xl">
               <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Matching Satellites ({satellites.length} total)
+                Matching Satellites ({satellites.length.toLocaleString()} total)
               </div>
               {filteredSatellites.map((sat) => (
                 <button
@@ -136,12 +202,12 @@ export default function Globe() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
           </span>
-          <span>{satellites.length} satellites loaded ({catalogSource})</span>
+          <span>{satellites.length.toLocaleString()} satellites live ({catalogSource})</span>
         </div>
       </div>
 
       {/* Satellite Classification Legend */}
-      {layersVisible && (
+      {layersVisible && constellation !== "starlink" && (
         <div className="pointer-events-auto absolute bottom-24 left-4 md:bottom-auto md:top-24 md:left-6 z-20 flex flex-col gap-2 rounded-lg border border-border/80 bg-card/85 p-3 text-xs backdrop-blur-md shadow-xl w-44">
           <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
             Classification
@@ -183,6 +249,53 @@ export default function Globe() {
             </span>
           </div>
         </div>
+      )}
+
+      {/* Starlink Shells Legend */}
+      {layersVisible && constellation === "starlink" && (
+        <div className="pointer-events-auto absolute bottom-24 right-4 md:bottom-auto md:top-24 md:right-6 z-20 flex flex-col gap-2 rounded-lg border border-border/80 bg-zinc-950/90 p-3 text-xs backdrop-blur-md shadow-xl w-48 text-zinc-300">
+          <div className="text-[11px] font-bold text-white mb-1">
+            Starlink Shells
+          </div>
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded bg-blue-500"></span>
+              <span>Gen1</span>
+            </div>
+            <span className="font-mono text-[10px] text-zinc-500">
+              {satellites.filter((s) => s.subType === "Gen1").length}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded bg-emerald-500"></span>
+              <span>Gen2-Transit</span>
+            </div>
+            <span className="font-mono text-[10px] text-zinc-500">
+              {satellites.filter((s) => s.subType === "Gen2-Transit").length}
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded bg-orange-500"></span>
+              <span>v2-mini</span>
+            </div>
+            <span className="font-mono text-[10px] text-zinc-500">
+              {satellites.filter((s) => s.subType === "v2-mini").length}
+            </span>
+          </div>
+          <div className="mt-2 pt-2 border-t border-zinc-800 text-[10px] text-zinc-500">
+            Distribution ({satellites.length} satellites)
+          </div>
+        </div>
+      )}
+
+      {/* AI Satellite Info Panel */}
+      {selectedSat && (
+        <SatelliteInfoPanel 
+          satellite={selectedSat} 
+          onClose={() => setSelectedSat(null)} 
+        />
       )}
 
       {/* Bottom Control Toolbar */}
