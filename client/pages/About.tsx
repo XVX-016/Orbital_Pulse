@@ -1,4 +1,5 @@
-import { CheckCircle2, Circle, Clock, Cpu, Database, Layers, ScanSearch, Radio, ArrowRightLeft, Sparkles, MapPin, ShieldAlert } from "lucide-react";
+import { Link } from "react-router-dom";
+import { CheckCircle2, Circle, Clock, Cpu, Database, Layers, ScanSearch, Radio, ArrowRightLeft, Sparkles, MapPin, ShieldAlert, BellRing, Mountain, CloudLightning, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Technology Stack Items
@@ -21,6 +22,18 @@ const TECH_STACK = [
     category: "Satellite Data Ingestion",
     description: "Earth Search / AWS Element84 STAC integration covering curated regions with automatic on-demand live fallback for any global location.",
     icon: MapPin,
+  },
+  {
+    name: "Proactive Alerting Daemon",
+    category: "Continuous Monitoring",
+    description: "Background ingestion loop with pluggable alert-check functions. Land-change and severe-weather alerts share one PostGIS table and one GeoJSON endpoint (/api/alerts).",
+    icon: BellRing,
+  },
+  {
+    name: "INSAT-3DR Thermal IR (MOSDAC)",
+    category: "Geostationary Weather Data",
+    description: "Half-hourly TIR-1 (10.8 µm) frames from ISRO's MOSDAC archive, converted to brightness temperature with the in-file calibration table and traced back to each archive file.",
+    icon: CloudLightning,
   },
   {
     name: "PostGIS Spatial History",
@@ -67,6 +80,21 @@ const TIMELINE: TimelineItem[] = [
   },
   {
     phase: "PHASE 02",
+    title: "Proactive Monitoring",
+    subtitle: "From answering questions to raising alerts",
+    status: "completed",
+    statusLabel: "Current Build",
+    summary: "The platform no longer waits for a question. A monitoring daemon watches chosen regions on every data cycle and raises an alert when something changes.",
+    highlights: [
+      "Shared alerting foundation: monitoring_alerts PostGIS table, pluggable alert-check hook in the ingestion daemon, GeoJSON /api/alerts",
+      "Track A: mining expansion monitoring for Jharia Coalfield and Joda iron-ore belt from real Sentinel-2 time series, with approximate boundaries labelled as such",
+      "Track B: convective development risk from INSAT-3DR cloud-top cooling rates, thresholded against published criteria (Roberts & Rutledge 2003; Mecikalski & Bedka 2006)",
+      "Land and Weather monitoring dashboards with map view, live status and alert history",
+      "Deterministic output composer that merges the VLM answer with measured metrics, and a separate audit trail view",
+    ],
+  },
+  {
+    phase: "PHASE 03",
     title: "Edge & On-Device Quantization",
     subtitle: "Quantized payload & low-latency inference",
     status: "roadmap",
@@ -79,7 +107,7 @@ const TIMELINE: TimelineItem[] = [
     ],
   },
   {
-    phase: "PHASE 03",
+    phase: "PHASE 04",
     title: "Autonomous Fleet Tasking",
     subtitle: "Multi-satellite swarm coordination",
     status: "roadmap",
@@ -112,7 +140,7 @@ export default function About() {
             SatQuery AI
           </h1>
           <p className="mt-6 text-body text-muted-foreground leading-relaxed text-lg">
-            SatQuery AI is an agentic vision-language assistant for remote-sensing imagery, built for ISRO PS-26167. It integrates a fine-tuned 4-bit GeoChat-7B multimodal vision-language model into an agentic controller that routes queries across specialized analysis engines: Visual Question Answering (VQA), spatial object grounding with normalized bounding boxes, bi-temporal change detection, and Sentinel-1 SAR cloud-penetrating radar fusion. Coupled with an independent deterministic geospatial metrics layer, a live STAC catalog with on-demand global fallback, and a PostGIS-backed analysis history with interactive map exploration, SatQuery AI provides rigorous, auditable Earth observation intelligence.
+            SatQuery AI is an agentic vision-language assistant for remote-sensing imagery, built for ISRO PS-26167, that has moved from answering questions on demand to monitoring regions continuously. It integrates a fine-tuned 4-bit GeoChat-7B multimodal vision-language model into an agentic controller that routes queries across specialized analysis engines: Visual Question Answering (VQA), spatial object grounding with normalized bounding boxes, bi-temporal change detection, and Sentinel-1 SAR cloud-penetrating radar fusion. Coupled with an independent deterministic geospatial metrics layer, a live STAC catalog with on-demand global fallback, and a PostGIS-backed analysis history with interactive map exploration, SatQuery AI provides rigorous, auditable Earth observation intelligence.
           </p>
         </section>
 
@@ -200,6 +228,48 @@ export default function About() {
           </div>
         </section>
 
+
+        {/* Section 1.2: Reactive → proactive pivot */}
+        <section className="border-t border-white/10 pt-12">
+          <div className="mb-6">
+            <p className="label-micro mb-2 text-primary">The Pivot</p>
+            <h2 className="text-subhead font-semibold text-foreground">From reactive queries to proactive monitoring</h2>
+            <p className="mt-3 max-w-3xl text-sm text-muted-foreground leading-relaxed">
+              A query answers the question someone thought to ask. Monitoring catches the change nobody asked about yet.
+              SatQuery AI now runs alert checks on every ingestion cycle and writes each alert, with the numbers behind
+              it, to one shared alert feed.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Link to="/land-monitoring" className="group rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-colors hover:border-primary/50">
+              <div className="mb-3 flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-emerald-500/20 text-emerald-400"><Mountain className="h-4 w-4" /></div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Track A: Land monitoring</h3>
+                  <p className="text-[11px] text-muted-foreground">Sentinel-2 · mining expansion</p>
+                </div>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Compares the two clearest well-separated scenes over Jharia and Joda and flags new bare ground or excavation inside or beyond each field's approximate boundary.
+              </p>
+              <span className="mt-3 inline-flex items-center gap-1 text-xs text-accent">Open dashboard <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" /></span>
+            </Link>
+            <Link to="/weather-monitoring" className="group rounded-xl border border-white/10 bg-[#121212]/90 p-5 transition-colors hover:border-primary/50">
+              <div className="mb-3 flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-sky-500/20 text-sky-400"><CloudLightning className="h-4 w-4" /></div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Track B: Severe weather</h3>
+                  <p className="text-[11px] text-muted-foreground">INSAT-3DR · convective risk</p>
+                </div>
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Tracks how fast cloud tops cool over thunderstorm-prone districts of Odisha and Jharkhand every 30 minutes and flags elevated convective development risk.
+              </p>
+              <span className="mt-3 inline-flex items-center gap-1 text-xs text-accent">Open dashboard <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" /></span>
+            </Link>
+          </div>
+        </section>
+
         {/* Section 2: The Problem */}
         <section className="border-t border-white/10 pt-12">
           <div className="mb-6">
@@ -272,6 +342,18 @@ export default function About() {
               <li className="flex items-start gap-2.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
                 <span><strong className="text-foreground font-medium">Global STAC Ingestion:</strong> Live STAC fallback trades latency for global coverage outside pre-cataloged regions.</span>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                <span><strong className="text-foreground font-medium">Mining Boundaries:</strong> Jharia and Joda boundaries are approximations digitised from public imagery, not official lease files. Boundary-derived areas are indicative and are never evidence of encroachment.</span>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                <span><strong className="text-foreground font-medium">Convective Risk:</strong> Track B outputs a regional "elevated convective development risk" flag, never a lightning-strike or storm-location forecast. It runs only on real MOSDAC frames, needs a MOSDAC account, and stays locked until a frame has been checked by hand against MOSDAC's archive.</span>
+              </li>
+              <li className="flex items-start gap-2.5">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />
+                <span><strong className="text-foreground font-medium">GPU Requirement:</strong> GeoChat-7B 4-bit inference needs an NVIDIA CUDA GPU. Without one, the service runs in degraded mode: monitoring, alerts and deterministic metrics work, VQA and grounding do not.</span>
               </li>
               <li className="flex items-start gap-2.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-400 mt-1.5 shrink-0" />

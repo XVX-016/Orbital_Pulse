@@ -13,6 +13,8 @@ import About from "./pages/About";
 import Audit from "./pages/Audit";
 import Globe from "./pages/Globe";
 import MapView from "./pages/MapView";
+import LandMonitoring from "./pages/LandMonitoring";
+import WeatherMonitoring from "./pages/WeatherMonitoring";
 import NotFound from "./pages/NotFound";
 import { GlobeProvider } from "@/lib/globe-context";
 
@@ -33,6 +35,8 @@ const App = () => (
               <Route path="/about" element={<About />} />
               <Route path="/audit" element={<Audit />} />
               <Route path="/map" element={<MapView />} />
+              <Route path="/land-monitoring" element={<LandMonitoring />} />
+              <Route path="/weather-monitoring" element={<WeatherMonitoring />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

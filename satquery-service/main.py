@@ -57,6 +57,15 @@ async def startup_event():
     except Exception as stac_err:
         logger.warning(f"Could not start STAC catalog daemon: {stac_err}")
 
+    # Track B: INSAT-3DR thermal-IR ingestion + convective-risk alerts (idles
+    # with a log line until MOSDAC credentials are configured)
+    try:
+        from insat_ingest import insat_daemon
+        asyncio.create_task(insat_daemon())
+        logger.info("INSAT ingestion daemon scheduled.")
+    except Exception as insat_err:
+        logger.warning(f"Could not start INSAT daemon: {insat_err}")
+
     # Load 4-bit GeoChat-7B model engine once at startup
     try:
         from geochat_engine import init_geochat_model
@@ -551,6 +560,145 @@ async def list_catalog(limit: int = 100):
     return {
         "type": "FeatureCollection",
         "count": len(features),
+        "features": features,
+    }
+
+
+def _sync_region_status(region: dict) -> dict:
+    """Latest catalog + alert state for one monitored mining region."""
+    from mining_monitor import MAX_CLOUD_COVER_PCT, MIN_SCENE_COVERAGE
+
+    scenes = analysis_db.get_scenes_covering_bbox(
+        region["bbox"],
+        min_coverage=MIN_SCENE_COVERAGE,
+        limit=100,
+        since_days=365,
+        collection="sentinel-2-l2a",
+    )
+    clear = [
+        s for s in scenes
+        if s.get("cloud_cover") is not None and float(s["cloud_cover"]) <= MAX_CLOUD_COVER_PCT
+    ]
+    alerts = analysis_db.get_recent_alerts(
+        limit=20, region_name=region["name"], alert_type="land_change"
+    )
+    return {
+        "scene_count": len(scenes),
+        "clear_scene_count": len(clear),
+        "latest_scene": scenes[0] if scenes else None,
+        "latest_clear_scene": clear[0] if clear else None,
+        "open_alert_count": sum(1 for a in alerts if not a.get("acknowledged")),
+        "alerts": alerts,
+    }
+
+
+@app.get("/api/monitored-regions")
+async def list_monitored_regions():
+    """Monitored mining regions as a GeoJSON FeatureCollection of boundaries.
+
+    Every feature carries `boundary_is_approximate` and `boundary_caveat` so the
+    UI can show the provenance caveat next to any boundary-derived figure.
+    """
+    from mining_regions import MINING_REGIONS, boundary_to_geojson
+
+    loop = asyncio.get_event_loop()
+    features = []
+    for region in MINING_REGIONS:
+        try:
+            status = await loop.run_in_executor(_db_executor, _sync_region_status, region)
+        except Exception as e:
+            logger.error(f"GET /api/monitored-regions DB error: {e}")
+            raise HTTPException(status_code=503, detail=f"Database unavailable: {e}")
+        features.append({
+            "type": "Feature",
+            "geometry": boundary_to_geojson(region),
+            "properties": {
+                "name": region["name"],
+                "display_name": region.get("display_name", region["name"]),
+                "commodity": region.get("commodity"),
+                "bbox": region["bbox"],
+                "monitored": region.get("monitored", False),
+                "boundary_is_approximate": region.get("boundary_is_approximate", True),
+                "boundary_caveat": region.get("boundary_caveat"),
+                "boundary_source": region.get("boundary_source"),
+                **status,
+            },
+        })
+
+    return {"type": "FeatureCollection", "count": len(features), "features": features}
+
+
+def _sync_weather_region_status(region: dict) -> dict:
+    """Latest INSAT frame, gate state, live risk assessment and alerts for one region."""
+    import storm_risk
+
+    frames = analysis_db.get_insat_frames(region_name=region["name"], limit=1)
+    recent = analysis_db.get_insat_frames(region_name=region["name"], limit=200, since_hours=24)
+    alerts = analysis_db.get_recent_alerts(
+        limit=30, region_name=region["name"], alert_type="severe_weather"
+    )
+    latest = frames[0] if frames else None
+    return {
+        "latest_frame": {
+            "id": latest["id"],
+            "identifier": latest["identifier"],
+            "acquired_at": latest["acquired_at"],
+            "auto_checks_passed": latest["auto_checks_passed"],
+            "stats": latest["stats"],
+        } if latest else None,
+        "frames_24h": len(recent),
+        "assessment": storm_risk.assess_region(region),
+        "open_alert_count": sum(1 for a in alerts if not a.get("acknowledged")),
+        "alerts": alerts,
+    }
+
+
+@app.get("/api/weather-regions")
+async def list_weather_regions():
+    """Monitored severe-weather regions as GeoJSON, with INSAT feed state.
+
+    `feed` reports whether MOSDAC credentials are configured and whether the
+    Prompt 7 manual verification gate is open; the per-region `assessment` is
+    computed live from stored frames and is `gate_closed` until it is.
+    """
+    import insat_ingest
+    import storm_risk
+    from weather_regions import WEATHER_REGIONS, bbox_to_geojson
+
+    loop = asyncio.get_event_loop()
+    try:
+        gate = await loop.run_in_executor(_db_executor, storm_risk.gate_status)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {e}")
+
+    features = []
+    for region in WEATHER_REGIONS:
+        try:
+            status = await loop.run_in_executor(_db_executor, _sync_weather_region_status, region)
+        except Exception as e:
+            logger.error(f"GET /api/weather-regions DB error: {e}")
+            raise HTTPException(status_code=503, detail=f"Database unavailable: {e}")
+        features.append({
+            "type": "Feature",
+            "geometry": bbox_to_geojson(region["bbox"]),
+            "properties": {
+                "name": region["name"],
+                "display_name": region["display_name"],
+                "context": region.get("context"),
+                "bbox": region["bbox"],
+                **status,
+            },
+        })
+
+    return {
+        "type": "FeatureCollection",
+        "feed": {
+            "source": "MOSDAC (SAC-ISRO)",
+            "dataset_id": insat_ingest.DATASET_ID,
+            "credentials_configured": insat_ingest.credentials_configured(),
+            "auth_disabled_reason": insat_ingest.auth_disabled_reason(),
+            "gate": gate,
+        },
         "features": features,
     }
 

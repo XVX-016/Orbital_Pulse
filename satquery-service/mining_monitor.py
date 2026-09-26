@@ -504,6 +504,11 @@ def mining_expansion_check(
         "alert_type": "land_change",
         "severity": verdict["severity"],
         "computed_metrics": verdict["computed_metrics"],
+        # Same scene pair = same condition: raise it once, not every cycle.
+        "dedupe_key": "{}->{}".format(
+            verdict["computed_metrics"].get("before_scene_id"),
+            verdict["computed_metrics"].get("after_scene_id"),
+        ),
     }
 
 

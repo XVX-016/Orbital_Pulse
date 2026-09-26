@@ -123,7 +123,36 @@ npm run dev
 - **Deterministic Geospatial Metrics Engine**: Computes NDVI, land cover distribution, and spectral change area directly from GeoTIFF pixel data, verifying the model's qualitative answer.
 - **Live STAC Catalog**: Ingests imagery from AWS Element84 / Earth Search covering curated regions with on-demand fallback for global coordinates.
 - **PostGIS Spatial History**: Persists analysis metadata, bounding boxes, and image footprints with interactive Leaflet map exploration.
+- **Proactive Monitoring (reactive → proactive pivot)**: the ingestion daemon runs pluggable alert checks every cycle and writes land-change and severe-weather alerts to one PostGIS table, served as GeoJSON at `GET /api/alerts`.
+  - **Track A, Land monitoring** (`/land-monitoring`): mining expansion at Jharia Coalfield and Joda iron-ore belt from real Sentinel-2 time series (`mining_monitor.py`). Boundaries are approximate, and the UI says so next to every number.
+  - **Track B, Severe weather** (`/weather-monitoring`): elevated convective development risk from INSAT-3DR TIR-1 cloud-top cooling (`insat_ingest.py` + `storm_risk.py`), for Mayurbhanj, Ranchi and Dhanbad.
 - **Live 3D Satellite Tracking**: High-performance CesiumJS globe tracking 16,000+ active satellites and constellations in real-time.
+
+---
+
+## ⛈️ Track B setup: INSAT-3DR via MOSDAC
+
+Track B uses real INSAT-3DR thermal-IR data from MOSDAC (SAC-ISRO). Nothing is simulated: without an account the daemon idles and the dashboard says the feed is not connected.
+
+1. Register at https://www.mosdac.gov.in/ and add to `.env` next to `docker-compose.yml`:
+   ```
+   MOSDAC_USERNAME=...
+   MOSDAC_PASSWORD=...
+   ```
+   Three wrong passwords in a row lock a MOSDAC account for an hour, so the service stops after the first rejection.
+2. Restart the stack, then pull the first frames and print their provenance:
+   ```bash
+   docker compose exec satquery-service python insat_ingest.py search          # archive listing, no login needed
+   docker compose exec satquery-service python insat_ingest.py ingest
+   docker compose exec satquery-service python insat_ingest.py verify          # raw counts, BT, exact API calls, timestamps
+   ```
+3. **Verification gate.** Find the printed identifier in MOSDAC's own archive browser and check that the acquisition time matches. Then open the gate:
+   ```bash
+   docker compose exec satquery-service python insat_ingest.py confirm <frame_id> --note "matched on MOSDAC catalog"
+   ```
+   `storm_risk.py` produces nothing until this is done.
+
+Default product: `3RIMG_L1C_ASIA_MER` (INSAT-3DR L1C Mercator Asia sector, ~24 MB per half-hourly frame). Override it with `INSAT_DATASET_ID`.
 
 ---
 
@@ -155,6 +184,8 @@ python ml/geochat/finetune/eval_comparison.py
 | **Deterministic Metrics** | **Fully Implemented** | NDVI, land cover, and change-area computed from pixel arrays — independent of and cross-checked against the model's output. |
 | **SAR-Optical Fusion** | **Synthetic Demonstration** | Validated on synthetic backscatter data for regions without real Sentinel-1 coverage yet (`satquery-service/test_sar_fusion.py`). |
 | **Live STAC Fallback** | **Global Coverage** | Curated STAC imagery is cached; live STAC fallback trades network latency for global coverage outside pre-cataloged regions. |
+| **Mining Expansion (Track A)** | **Implemented, real Sentinel-2** | Boundaries are approximations, not lease files. The "new bare ground inside boundary" figure is a triage signal: seasonal vegetation change inside the boundary can still register. |
+| **Convective Risk (Track B)** | **Implemented; live once a MOSDAC account is configured** | Regional risk flag, never a strike or location forecast. Criteria: Roberts & Rutledge (2003), Mecikalski & Bedka (2006). Rates beyond −10 K/15 min are capped at info and flagged for re-verification. |
 | **Benchmark Scoring** | **Manual Eyeball Reviewed** | Evaluated via a 10-sample manual review against real VRSBench/RSVQA-LR items (`satquery-service/eval/manual_review.md`). |
 
 ---
@@ -176,5 +207,14 @@ python satquery-service/test_change_vqa.py
 
 # 5. Deterministic Geospatial Metrics Verification
 python satquery-service/test_geospatial_metrics.py
+
+# 6. Mining expansion eyeball harness (real Jharia / Joda imagery)
+docker compose exec satquery-service python test_mining_monitor.py
+
+# 7. Output composer: two real pairs must give different numbers
+docker compose exec satquery-service python test_narrative_composer.py
+
+# 8. Convective-risk math + INSAT HDF5 parsing
+docker compose exec satquery-service python test_storm_risk.py
 ```
 

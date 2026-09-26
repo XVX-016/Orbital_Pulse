@@ -15,6 +15,7 @@ Metadata-only ingestion:
 """
 
 import asyncio
+import hashlib
 import io
 import json
 import logging
@@ -789,19 +790,36 @@ try:
 except Exception as _mm_err:  # pragma: no cover - import guard
     logger.warning("Could not register mining monitor: %s", _mm_err)
 
+# Track B specialist — acts only on ROIs flagged `insat_monitored` (the weather
+# regions the INSAT daemon passes in), so it is inert for DEFAULT_ROIS.
+try:
+    import storm_risk
+    storm_risk.register()
+    logger.info("Registered convective storm-risk alert check.")
+except Exception as _sr_err:  # pragma: no cover - import guard
+    logger.warning("Could not register storm-risk check: %s", _sr_err)
 
-def run_alert_checks() -> int:
-    """Run every registered check against every monitored ROI.
+
+def run_alert_checks(
+    rois: Optional[List[Dict[str, Any]]] = None,
+    checks: Optional[List[AlertCheckFn]] = None,
+) -> int:
+    """Run registered checks against monitored ROIs.
+
+    Defaults to every registered check over DEFAULT_ROIS; the INSAT daemon
+    passes its own weather regions and just the convective check, because it
+    polls on the 30-min imager cadence rather than the STAC interval.
 
     Returns the number of alerts actually persisted.  Sync (psycopg2 + rasterio),
     so the daemon calls it through a thread executor.  Never raises: one broken
     check function must not take down the ingestion loop.
     """
-    if not _ALERT_CHECKS:
+    checks = _ALERT_CHECKS if checks is None else checks
+    if not checks:
         return 0
 
     raised = 0
-    for roi in DEFAULT_ROIS:
+    for roi in (DEFAULT_ROIS if rois is None else rois):
         if not roi.get("monitored"):
             continue
 
@@ -812,7 +830,7 @@ def run_alert_checks() -> int:
             logger.warning("Alert context build failed for ROI '%s': %s", roi_name, e)
             continue
 
-        for check in _ALERT_CHECKS:
+        for check in checks:
             check_name = getattr(check, "__name__", repr(check))
             try:
                 alert = check(roi, context)
@@ -841,6 +859,21 @@ def run_alert_checks() -> int:
                 )
                 continue
 
+            # One open alert per distinct triggering condition.  A check may
+            # name its condition via `dedupe_key`; otherwise the metrics
+            # themselves are fingerprinted.
+            metrics = dict(alert.get("computed_metrics") or {})
+            dedupe_key = alert.get("dedupe_key") or hashlib.sha1(
+                json.dumps(metrics, sort_keys=True, default=str).encode()
+            ).hexdigest()[:16]
+            metrics["dedupe_key"] = dedupe_key
+            if analysis_db.has_open_alert_with_key(roi_name, alert_type, dedupe_key):
+                logger.debug(
+                    "Suppressing repeat %s alert for ROI '%s' (condition %s still open)",
+                    alert_type, roi_name, dedupe_key,
+                )
+                continue
+
             if analysis_db.has_recent_alert(
                 roi_name, alert_type, ALERT_SUPPRESSION_MINUTES
             ):
@@ -854,7 +887,7 @@ def run_alert_checks() -> int:
                 region_name=roi_name,
                 alert_type=alert_type,
                 severity=severity,
-                computed_metrics=alert.get("computed_metrics"),
+                computed_metrics=metrics,
                 geom_wkt=alert.get("geom_wkt") or context.get("roi_bbox_wkt"),
             )
             if alert_id is not None:

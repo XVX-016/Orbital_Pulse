@@ -34,6 +34,12 @@ services:
     environment:
       - SATQUERY_DATABASE_URL=postgresql://orbital_user:orbital_password@postgis:5432/orbital_db
       - CATALOG_POLL_INTERVAL_MINUTES=5
+      # Track B — MOSDAC account (https://www.mosdac.gov.in/). Put both in .env next to
+      # this file; the INSAT daemon idles until they are set.
+      - MOSDAC_USERNAME=${MOSDAC_USERNAME:-}
+      - MOSDAC_PASSWORD=${MOSDAC_PASSWORD:-}
+      - INSAT_DATASET_ID=${INSAT_DATASET_ID:-3RIMG_L1C_ASIA_MER}
+      - INSAT_POLL_MINUTES=${INSAT_POLL_MINUTES:-30}
     depends_on:
       postgis:
         condition: service_healthy

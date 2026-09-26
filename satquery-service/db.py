@@ -283,13 +283,44 @@ def init_db() -> None:
     CREATE INDEX IF NOT EXISTS monitoring_alerts_geom_idx      ON monitoring_alerts USING GIST (geom);
     CREATE INDEX IF NOT EXISTS monitoring_alerts_unack_idx     ON monitoring_alerts ("timestamp" DESC)
         WHERE acknowledged = FALSE;
+
+    -- One row per (INSAT frame, weather region).  Every column that lets a
+    -- reader trace a brightness temperature back to a real MOSDAC archive file
+    -- is kept: the exact search/download requests, the file hash, the HDF5
+    -- acquisition attributes and a raw count -> BT sample.
+    CREATE TABLE IF NOT EXISTS insat_frames (
+        id                    BIGSERIAL PRIMARY KEY,
+        dataset_id            TEXT        NOT NULL,
+        identifier            TEXT        NOT NULL,
+        record_id             TEXT        NOT NULL,
+        region_name           TEXT        NOT NULL,
+        acquired_at           TIMESTAMPTZ NOT NULL,
+        search_url            TEXT,
+        download_request      TEXT,
+        archive_link          TEXT,
+        file_sha256           TEXT,
+        file_bytes            BIGINT,
+        h5_attrs              JSONB,
+        geoloc_method         TEXT,
+        raw_sample            JSONB,
+        stats                 JSONB,
+        array_path            TEXT,
+        auto_checks           JSONB,
+        auto_checks_passed    BOOLEAN     NOT NULL DEFAULT FALSE,
+        manually_verified_at  TIMESTAMPTZ,
+        manually_verified_note TEXT,
+        created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (identifier, region_name)
+    );
+
+    CREATE INDEX IF NOT EXISTS insat_frames_region_time_idx ON insat_frames (region_name, acquired_at DESC);
     """
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(create_tables_sql)
             conn.commit()
-        logger.info("DB: ensured schema and tables (analyses, catalogued_scenes, monitoring_alerts)")
+        logger.info("DB: ensured schema and tables (analyses, catalogued_scenes, monitoring_alerts, insat_frames)")
     except Exception as e:
         logger.warning(f"DB init_db failed: {e}")
 
@@ -547,6 +578,29 @@ def has_recent_alert(region_name: str, alert_type: str, within_minutes: int = 60
         return True
 
 
+def has_open_alert_with_key(region_name: str, alert_type: str, dedupe_key: str) -> bool:
+    """True if an unacknowledged alert for this exact triggering condition exists.
+
+    The time-window check above only spaces alerts out; without this, an
+    unchanged condition (e.g. the same Sentinel-2 scene pair) was re-raised every
+    time the window lapsed.  Fails closed, like has_recent_alert.
+    """
+    sql = """
+        SELECT 1 FROM monitoring_alerts
+        WHERE region_name = %s AND alert_type = %s AND acknowledged = FALSE
+          AND computed_metrics->>'dedupe_key' = %s
+        LIMIT 1;
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (region_name, alert_type, dedupe_key))
+                return cur.fetchone() is not None
+    except Exception as e:
+        logger.warning(f"has_open_alert_with_key failed for {region_name!r}: {e}")
+        return True
+
+
 def get_recent_alerts(
     limit: int = 50,
     acknowledged: Optional[bool] = None,
@@ -754,3 +808,127 @@ def get_scenes_covering_bbox(
             d["coverage_ratio"] = float(d["coverage_ratio"])
         result.append(d)
     return result
+
+
+# ─── INSAT thermal-IR frames (Track B) ────────────────────────────────────────
+
+_INSAT_JSON_COLS = ("h5_attrs", "raw_sample", "stats", "auto_checks")
+
+
+def insat_frame_exists(identifier: str, region_name: str) -> bool:
+    """True if this (frame, region) is already stored.  Fails closed (True)."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM insat_frames WHERE identifier = %s AND region_name = %s LIMIT 1;",
+                    (identifier, region_name),
+                )
+                return cur.fetchone() is not None
+    except Exception as e:
+        logger.warning(f"insat_frame_exists failed for {identifier!r}: {e}")
+        return True
+
+
+def insert_insat_frame(row: Dict[str, Any]) -> Optional[int]:
+    """Insert one INSAT frame row and return its id.  Raises on DB failure:
+    the ingest CLI must fail loudly rather than report a frame it did not keep."""
+    cols = [
+        "dataset_id", "identifier", "record_id", "region_name", "acquired_at",
+        "search_url", "download_request", "archive_link", "file_sha256",
+        "file_bytes", "h5_attrs", "geoloc_method", "raw_sample", "stats",
+        "array_path", "auto_checks", "auto_checks_passed",
+    ]
+    values = [
+        json.dumps(row.get(c)) if c in _INSAT_JSON_COLS and row.get(c) is not None else row.get(c)
+        for c in cols
+    ]
+    sql = f"""
+        INSERT INTO insat_frames ({', '.join(cols)})
+        VALUES ({', '.join(['%s'] * len(cols))})
+        ON CONFLICT (identifier, region_name) DO NOTHING
+        RETURNING id;
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, values)
+            out = cur.fetchone()
+        conn.commit()
+    return out[0] if out else None
+
+
+def _insat_row(d: Dict[str, Any]) -> Dict[str, Any]:
+    for k in ("acquired_at", "manually_verified_at", "created_at"):
+        if d.get(k) is not None:
+            d[k] = d[k].isoformat()
+    return d
+
+
+def get_insat_frames(
+    region_name: Optional[str] = None,
+    limit: int = 20,
+    only_auto_passed: bool = False,
+    since_hours: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """INSAT frames, newest first.  Raises on DB failure."""
+    conditions: List[str] = []
+    params: List[Any] = []
+    if region_name:
+        conditions.append("region_name = %s")
+        params.append(region_name)
+    if only_auto_passed:
+        conditions.append("auto_checks_passed = TRUE")
+    if since_hours is not None:
+        conditions.append("acquired_at > NOW() - (%s * INTERVAL '1 hour')")
+        params.append(since_hours)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params.append(limit)
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                f"SELECT * FROM insat_frames {where} ORDER BY acquired_at DESC, id DESC LIMIT %s;",
+                tuple(params),
+            )
+            return [_insat_row(dict(r)) for r in cur.fetchall()]
+
+
+def get_insat_frame(frame_id: int) -> Optional[Dict[str, Any]]:
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT * FROM insat_frames WHERE id = %s;", (frame_id,))
+            r = cur.fetchone()
+    return _insat_row(dict(r)) if r else None
+
+
+def confirm_insat_frame(frame_id: int, note: str) -> bool:
+    """Record that a human cross-checked this frame against MOSDAC's archive
+    browser (Prompt 7 verification gate).  Only frames that passed the automatic
+    provenance checks can be confirmed."""
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE insat_frames SET manually_verified_at = NOW(), manually_verified_note = %s "
+                "WHERE id = %s AND auto_checks_passed = TRUE RETURNING id;",
+                (note, frame_id),
+            )
+            ok = cur.fetchone() is not None
+        conn.commit()
+    return ok
+
+
+def insat_pipeline_verified(dataset_id: Optional[str] = None) -> bool:
+    """The Prompt 7 → Prompt 8 gate: at least one frame of this dataset has been
+    manually cross-checked against the MOSDAC archive.  Fails closed."""
+    sql = "SELECT 1 FROM insat_frames WHERE manually_verified_at IS NOT NULL"
+    params: List[Any] = []
+    if dataset_id:
+        sql += " AND dataset_id = %s"
+        params.append(dataset_id)
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql + " LIMIT 1;", tuple(params))
+                return cur.fetchone() is not None
+    except Exception as e:
+        logger.warning(f"insat_pipeline_verified check failed (gate stays closed): {e}")
+        return False

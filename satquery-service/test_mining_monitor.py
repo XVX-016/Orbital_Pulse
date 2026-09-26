@@ -95,7 +95,10 @@ def main() -> int:
         print(f"    bare ground before     : {metrics['bare_ground_pct_before']}%")
         print(f"    bare ground after      : {metrics['bare_ground_pct_after']}%")
         print(f"    delta                  : {metrics['bare_ground_delta_pp']} pp")
-        print(f"    => EXPANSION           : {metrics['expansion_km2']} km²")
+        # Whole-bbox figure is a NET change across ~900 km² of mostly farmland and
+        # forest: it goes negative when surrounding fields green up, so it is not
+        # an "expansion" and does not drive the alert.
+        print(f"    net bare change (bbox) : {metrics['expansion_km2']} km²  (context only, seasonal)")
         print(f"    spectral change        : {metrics['spectral_change_pct']}%")
         print(f"    newly-bare outside bdy : {metrics['newly_bare_outside_boundary_pct']}%")
         print(f"    boundary area          : {metrics.get('boundary_area_km2')} km²")
@@ -122,8 +125,8 @@ def main() -> int:
         print(f"    {metrics['boundary_caveat']}")
 
         print("\n  >>> EYEBALL CHECK: open both thumbnails above and confirm the")
-        print(f"  >>> reported {metrics['expansion_km2']} km² of new bare ground is")
-        print("  >>> consistent with visible excavation/spoil growth between the dates.")
+        print(f"  >>> reported {metrics.get('expansion_inside_boundary_km2')} km² of new bare ground INSIDE the")
+        print("  >>> boundary is consistent with visible excavation/spoil growth between the dates.")
 
     print("\n" + "=" * 78)
     if analysed == 0:

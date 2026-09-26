@@ -83,7 +83,9 @@ if [ "$MODE" = "host" ]; then
     docker compose up -d postgis
 else
     log "Starting PostGIS + satquery-service..."
-    docker compose up -d postgis satquery-service
+    # --build: a changed requirements.txt (e.g. h5py for Track B) must reach the
+    # image; with nothing changed the cached build finishes in seconds.
+    docker compose up -d --build postgis satquery-service
 fi
 
 log "Waiting for PostGIS to report healthy..."

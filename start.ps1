@@ -109,7 +109,8 @@ if ($ResolvedMode -eq 'host') {
     & docker compose up -d postgis
 } else {
     Write-Log 'Starting PostGIS + satquery-service...'
-    & docker compose up -d postgis satquery-service
+    # --build: a changed requirements.txt must reach the image (cached = seconds)
+    & docker compose up -d --build postgis satquery-service
 }
 if ($LASTEXITCODE -ne 0) { Stop-WithError 'docker compose up failed. Inspect: docker compose logs' }
 

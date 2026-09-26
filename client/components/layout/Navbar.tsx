@@ -6,6 +6,8 @@ const NAV_LINKS = [
   { to: "/globe", label: "Globe" },
   { to: "/analyze", label: "Analyze" },
   { to: "/map", label: "History" },
+  { to: "/land-monitoring", label: "Land" },
+  { to: "/weather-monitoring", label: "Weather" },
   { to: "/about", label: "About" },
 ];
 

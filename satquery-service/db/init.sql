@@ -70,3 +70,36 @@ CREATE INDEX IF NOT EXISTS monitoring_alerts_geom_idx      ON monitoring_alerts 
 -- Partial index for the common "show me what still needs attention" query
 CREATE INDEX IF NOT EXISTS monitoring_alerts_unack_idx     ON monitoring_alerts ("timestamp" DESC)
     WHERE acknowledged = FALSE;
+
+
+-- ─── INSAT thermal-IR frames (Track B) ───────────────────────────────────────
+-- One row per (INSAT frame, weather region).  Every column that lets a
+-- reader trace a brightness temperature back to a real MOSDAC archive file
+-- is kept: the exact search/download requests, the file hash, the HDF5
+-- acquisition attributes and a raw count -> BT sample.
+CREATE TABLE IF NOT EXISTS insat_frames (
+    id                    BIGSERIAL PRIMARY KEY,
+    dataset_id            TEXT        NOT NULL,
+    identifier            TEXT        NOT NULL,
+    record_id             TEXT        NOT NULL,
+    region_name           TEXT        NOT NULL,
+    acquired_at           TIMESTAMPTZ NOT NULL,
+    search_url            TEXT,
+    download_request      TEXT,
+    archive_link          TEXT,
+    file_sha256           TEXT,
+    file_bytes            BIGINT,
+    h5_attrs              JSONB,
+    geoloc_method         TEXT,
+    raw_sample            JSONB,
+    stats                 JSONB,
+    array_path            TEXT,
+    auto_checks           JSONB,
+    auto_checks_passed    BOOLEAN     NOT NULL DEFAULT FALSE,
+    manually_verified_at  TIMESTAMPTZ,
+    manually_verified_note TEXT,
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (identifier, region_name)
+);
+
+CREATE INDEX IF NOT EXISTS insat_frames_region_time_idx ON insat_frames (region_name, acquired_at DESC);
