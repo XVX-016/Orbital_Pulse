@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft, FlaskConical, Leaf, Map, BarChart2, Layers, MapPin, Calendar, Satellite, Globe2, ChevronDown, ChevronUp, SlidersHorizontal, Info } from "lucide-react";
+import { useSearchParams, Link } from "react-router-dom";
+import { Play, Sparkles, Terminal, Loader2, ScanSearch, AlertCircle, Upload, X, FileImage, Download, Target, ArrowRightLeft, FlaskConical, Leaf, Map, BarChart2, Layers, MapPin, Calendar, Satellite, Globe2, ChevronDown, ChevronUp, SlidersHorizontal, Info, FileText } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { normalizeGroundingBox } from "@/lib/grounding-boxes";
+import { recordAudit } from "@/lib/audit-store";
 
 const AI_SERVICE_URL = import.meta.env.VITE_AI_SERVICE_URL || "http://localhost:8082";
 
@@ -163,6 +164,7 @@ interface AnalyzeResponse {
   } | null;
   computed_metrics: ComputedMetrics | null;
   execution_trace: ExecutionTrace;
+  narrative?: string;
   preview_image_base64?: string;
   preview_images_base64?: string[];
   data_warnings?: string[];
@@ -612,6 +614,21 @@ export default function Analyze() {
 
       const data: AnalyzeResponse = await response.json();
       setResult(data);
+
+      // Hand the trace to /audit — the Analyze panel now only links to it.
+      if (data?.execution_trace) {
+        recordAudit({
+          timestamp: Date.now(),
+          query,
+          task: data.execution_trace.task,
+          specialistUsed: data.execution_trace.specialist_used,
+          parameters: data.execution_trace.parameters ?? {},
+          dataSource: data.data_source,
+          dataWarnings: data.data_warnings,
+          answer: data.answer,
+          narrative: data.narrative,
+        });
+      }
       // Auto-expand trace if data_warnings are present so user immediately sees diagnostic details
       if (data.data_warnings && data.data_warnings.length > 0) {
         setShowTrace(true);
@@ -1458,92 +1475,55 @@ export default function Analyze() {
               <ComputedMetricsPanel metrics={result.computed_metrics} />
             )}
 
-            {/* Auditable Execution Trace Card — Collapsible with auto-expand on warnings */}
-            <div className="rounded-xl border border-border bg-[#0E0E0E] shadow-xl overflow-hidden">
-              <button
-                type="button"
-                id="execution-trace-toggle"
-                onClick={() => setShowTrace((prev) => !prev)}
-                className="w-full flex items-center justify-between p-5 text-left hover:bg-white/[0.02] transition-colors select-none"
+            {/* Composed narrative — model answer fused with deterministic metrics.
+                Template composition on the backend; no second model call. */}
+            {result?.narrative && (
+              <div className="rounded-xl border border-border bg-[#0E0E0E] p-5 shadow-xl">
+                <div className="mb-2 flex items-center gap-2">
+                  <FileText className="h-4 w-4 shrink-0 text-primary" />
+                  <span className="label-micro text-muted-foreground">
+                    COMPOSED SUMMARY
+                  </span>
+                </div>
+                <p className="text-[13px] leading-relaxed text-foreground/90">
+                  {result.narrative}
+                </p>
+              </div>
+            )}
+
+            {/* Auditable Execution Trace — relocated to the dedicated /audit route.
+                PS-26167 requires the trace to remain inspectable, so this badge
+                links to it rather than removing it. */}
+            {result?.execution_trace && (
+              <Link
+                to="/audit"
+                className="group flex items-center justify-between gap-3 rounded-xl border border-border bg-[#0E0E0E] px-4 py-3 shadow-xl transition-colors hover:border-accent/40 hover:bg-white/[0.02]"
               >
-                <div className="flex items-center gap-2.5">
-                  <Terminal className="h-4 w-4 text-accent shrink-0" />
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="label-micro text-muted-foreground">AUDITABLE EXECUTION TRACE</span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-accent/10 border border-accent/25 text-accent">
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <Terminal className="h-4 w-4 shrink-0 text-accent" />
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="label-micro text-muted-foreground">
+                      AUDITABLE EXECUTION TRACE
+                    </span>
+                    <span className="rounded border border-accent/25 bg-accent/10 px-1.5 py-0.5 font-mono text-[10px] text-accent">
                       PS-COMPLIANT
                     </span>
-                    {result?.data_source && (
-                      <span className={cn(
-                        "text-[10px] font-mono px-1.5 py-0.5 rounded border",
-                        result.data_source === "cached_catalog"
-                          ? "bg-primary/10 border-primary/30 text-primary"
-                          : "bg-sky-500/10 border-sky-500/20 text-sky-400"
-                      )}>
-                        {result.data_source === "cached_catalog" ? "CACHED CATALOG" : "LIVE FALLBACK"}
+                    <span className="font-mono text-[11px] text-primary">
+                      {result.execution_trace.task}
+                    </span>
+                    {result?.data_warnings && result.data_warnings.length > 0 && (
+                      <span className="rounded border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-400">
+                        {result.data_warnings.length} WARNING
+                        {result.data_warnings.length > 1 ? "S" : ""}
                       </span>
                     )}
                   </div>
                 </div>
-
-                <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground shrink-0 ml-2">
-                  {result?.execution_trace && !showTrace && (
-                    <span className="text-[11px] text-primary hidden sm:inline">
-                      {result.execution_trace.task}
-                    </span>
-                  )}
-                  <span className="text-[11px] hover:text-foreground">
-                    {showTrace ? "Hide trace" : "Show trace"}
-                  </span>
-                  {showTrace ? (
-                    <ChevronUp className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  )}
-                </div>
-              </button>
-
-              {showTrace && (
-                <div className="px-5 pb-5 pt-1 border-t border-border/50 animate-in fade-in-50 duration-150">
-                  {result?.execution_trace ? (
-                    <div className="space-y-3 text-xs font-mono pt-3">
-                      <div className="p-3 rounded-lg bg-[#141414] border border-border/60 space-y-2">
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Task Classified:</span>
-                          <span className="text-primary font-bold">{result.execution_trace.task}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-muted-foreground">Specialist Used:</span>
-                          <span className="text-foreground">{result.execution_trace.specialist_used}</span>
-                        </div>
-                        {result.data_source && (
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Data Origin:</span>
-                            <span className={cn(
-                              "font-semibold",
-                              result.data_source === "cached_catalog" ? "text-primary" : "text-sky-400"
-                            )}>
-                              {result.data_source}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="p-3 rounded-lg bg-[#141414] border border-border/60">
-                        <p className="text-muted-foreground mb-1.5">Parameters:</p>
-                        <pre className="text-[11px] text-accent/90 overflow-x-auto">
-                          {JSON.stringify(result.execution_trace.parameters, null, 2)}
-                        </pre>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="py-6 text-center text-xs text-muted-foreground/60 font-mono">
-                      Execution trace telemetry will populate upon query completion.
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+                <span className="shrink-0 font-mono text-[11px] text-muted-foreground group-hover:text-foreground">
+                  View trace →
+                </span>
+              </Link>
+            )}
           </div>
         </div>
       </div>

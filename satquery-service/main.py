@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import asyncio
+import functools
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Any
 
@@ -19,6 +20,7 @@ from controller import route_and_execute
 from geochat_engine import load_image_robust
 from prompt_builder import build_geochat_prompt
 from response_formatter import polish_model_output
+from narrative_composer import compose_narrative
 import db as analysis_db
 
 logging.basicConfig(level=logging.INFO)
@@ -419,6 +421,19 @@ async def analyze_query(request: Request):
     if data_source:
         response["data_source"] = data_source
 
+    # ── Deterministic narrative ──────────────────────────────────────────────
+    # Template-based composition of the model answer + the independently computed
+    # metrics.  Pure string work — no second model call.
+    if isinstance(response, dict):
+        try:
+            response["narrative"] = compose_narrative(
+                answer=response.get("answer", ""),
+                computed_metrics=response.get("computed_metrics"),
+                task_type=response.get("execution_trace", {}).get("task"),
+            )
+        except Exception as e:
+            logger.warning(f"Narrative composition failed (non-fatal): {e}")
+
     # Surface any STAC fetch warnings to the caller so they appear in the frontend
     if data_warnings:
         response["data_warnings"] = data_warnings
@@ -538,3 +553,129 @@ async def list_catalog(limit: int = 100):
         "count": len(features),
         "features": features,
     }
+
+
+class AlertCreateRequest(BaseModel):
+    """Manual alert insertion payload (operator-raised or test alerts).
+
+    Mirrors what an alert-check function returns, so the same validation path in
+    db.insert_monitoring_alert() covers both the daemon and this endpoint.
+    """
+    region_name: str
+    alert_type: str                              # 'land_change' | 'severe_weather'
+    severity: str                                # 'info' | 'warning' | 'critical'
+    computed_metrics: Optional[dict] = None
+    geom_wkt: Optional[str] = None               # WGS-84 WKT; NULL geometry if omitted
+
+
+@app.get("/api/alerts")
+async def list_alerts(
+    limit: int = 50,
+    acknowledged: Optional[bool] = None,
+    region_name: Optional[str] = None,
+    alert_type: Optional[str] = None,
+):
+    """Return recent monitoring alerts as a GeoJSON FeatureCollection.
+
+    Alerts are raised by the STAC daemon's registered alert-check functions after
+    each poll cycle, or inserted manually via POST /api/alerts.
+
+    Query params:
+      limit        (int, default 50)  — max results, capped at 200.
+      acknowledged (bool, optional)   — filter by acknowledgement state.
+      region_name  (str, optional)    — filter to one ROI.
+      alert_type   (str, optional)    — 'land_change' | 'severe_weather'.
+    """
+    limit = min(max(1, limit), 200)
+
+    if alert_type is not None and alert_type not in analysis_db.VALID_ALERT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"alert_type must be one of {list(analysis_db.VALID_ALERT_TYPES)}",
+        )
+
+    try:
+        loop = asyncio.get_event_loop()
+        rows = await loop.run_in_executor(
+            _db_executor,
+            functools.partial(
+                analysis_db.get_recent_alerts,
+                limit=limit,
+                acknowledged=acknowledged,
+                region_name=region_name,
+                alert_type=alert_type,
+            ),
+        )
+    except Exception as e:
+        logger.error(f"GET /api/alerts DB error: {e}")
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {e}")
+
+    features = []
+    for row in rows:
+        geom = row.pop("geometry", None)
+        features.append({
+            "type": "Feature",
+            "geometry": geom,       # None → GeoJSON null geometry (allowed)
+            "properties": row,
+        })
+
+    return {
+        "type": "FeatureCollection",
+        "count": len(features),
+        "features": features,
+    }
+
+
+@app.post("/api/alerts", status_code=201)
+async def create_alert(req: AlertCreateRequest):
+    """Insert one alert manually and return the created row.
+
+    Used for operator-raised alerts and for end-to-end verification of the
+    alerting path without waiting for a daemon poll cycle.
+    """
+    if req.alert_type not in analysis_db.VALID_ALERT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"alert_type must be one of {list(analysis_db.VALID_ALERT_TYPES)}",
+        )
+    if req.severity not in analysis_db.VALID_SEVERITIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"severity must be one of {list(analysis_db.VALID_SEVERITIES)}",
+        )
+
+    loop = asyncio.get_event_loop()
+    alert_id = await loop.run_in_executor(
+        _db_executor,
+        functools.partial(
+            analysis_db.insert_monitoring_alert,
+            region_name=req.region_name,
+            alert_type=req.alert_type,
+            severity=req.severity,
+            computed_metrics=req.computed_metrics,
+            geom_wkt=req.geom_wkt,
+        ),
+    )
+
+    if alert_id is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Alert insert failed — see service logs for the DB error.",
+        )
+
+    return {"id": alert_id, "status": "created"}
+
+
+@app.post("/api/alerts/{alert_id}/acknowledge")
+async def acknowledge_alert_endpoint(alert_id: int):
+    """Mark an alert acknowledged, re-arming its region for a fresh alert."""
+    loop = asyncio.get_event_loop()
+    updated = await loop.run_in_executor(
+        _db_executor, analysis_db.acknowledge_alert, alert_id
+    )
+    if not updated:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No unacknowledged alert with id={alert_id}",
+        )
+    return {"id": alert_id, "acknowledged": True}

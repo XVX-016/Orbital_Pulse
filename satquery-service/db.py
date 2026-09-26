@@ -265,13 +265,31 @@ def init_db() -> None:
     CREATE INDEX IF NOT EXISTS catalogued_scenes_datetime_idx ON catalogued_scenes (datetime DESC);
     CREATE INDEX IF NOT EXISTS catalogued_scenes_geom_idx     ON catalogued_scenes USING GIST (geom);
     CREATE INDEX IF NOT EXISTS catalogued_scenes_coll_idx     ON catalogued_scenes (collection);
+
+    CREATE TABLE IF NOT EXISTS monitoring_alerts (
+        id               BIGSERIAL PRIMARY KEY,
+        region_name      TEXT        NOT NULL,
+        alert_type       TEXT        NOT NULL
+                         CHECK (alert_type IN ('land_change', 'severe_weather')),
+        severity         TEXT        NOT NULL
+                         CHECK (severity IN ('info', 'warning', 'critical')),
+        computed_metrics JSONB,
+        geom             GEOMETRY(Geometry, 4326),
+        "timestamp"      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        acknowledged     BOOLEAN     NOT NULL DEFAULT FALSE
+    );
+
+    CREATE INDEX IF NOT EXISTS monitoring_alerts_timestamp_idx ON monitoring_alerts ("timestamp" DESC);
+    CREATE INDEX IF NOT EXISTS monitoring_alerts_geom_idx      ON monitoring_alerts USING GIST (geom);
+    CREATE INDEX IF NOT EXISTS monitoring_alerts_unack_idx     ON monitoring_alerts ("timestamp" DESC)
+        WHERE acknowledged = FALSE;
     """
     try:
         with get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(create_tables_sql)
             conn.commit()
-        logger.info("DB: ensured schema and tables (analyses, catalogued_scenes)")
+        logger.info("DB: ensured schema and tables (analyses, catalogued_scenes, monitoring_alerts)")
     except Exception as e:
         logger.warning(f"DB init_db failed: {e}")
 
@@ -428,3 +446,311 @@ def find_scene_by_location(
     return d
 
 
+
+# ─── Monitoring alerts ────────────────────────────────────────────────────────
+
+# The two alert families the schema's CHECK constraint accepts.  Kept here (not
+# just in SQL) so the daemon can reject a malformed check-function result before
+# it ever reaches PostGIS.
+VALID_ALERT_TYPES = ("land_change", "severe_weather")
+VALID_SEVERITIES = ("info", "warning", "critical")
+
+
+def insert_monitoring_alert(
+    region_name: str,
+    alert_type: str,
+    severity: str,
+    computed_metrics: Optional[Dict[str, Any]] = None,
+    geom_wkt: Optional[str] = None,
+) -> Optional[int]:
+    """Insert one alert row and return its new id, or None on failure.
+
+    Validates `alert_type` / `severity` against the same vocabularies the table's
+    CHECK constraint enforces, so a buggy alert-check function surfaces as a
+    logged warning rather than an aborted transaction.
+
+    NEVER raises — the daemon must survive a bad check function.
+    """
+    if alert_type not in VALID_ALERT_TYPES:
+        logger.warning(
+            f"insert_monitoring_alert: rejected alert_type={alert_type!r} "
+            f"(expected one of {VALID_ALERT_TYPES})"
+        )
+        return None
+    if severity not in VALID_SEVERITIES:
+        logger.warning(
+            f"insert_monitoring_alert: rejected severity={severity!r} "
+            f"(expected one of {VALID_SEVERITIES})"
+        )
+        return None
+
+    sql = """
+        INSERT INTO monitoring_alerts
+            (region_name, alert_type, severity, computed_metrics, geom)
+        VALUES (%s, %s, %s, %s,
+                CASE WHEN %s IS NULL THEN NULL
+                     ELSE ST_SetSRID(ST_GeomFromText(%s), 4326) END)
+        RETURNING id;
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql,
+                    (
+                        region_name,
+                        alert_type,
+                        severity,
+                        json.dumps(computed_metrics) if computed_metrics else None,
+                        geom_wkt,
+                        geom_wkt,
+                    ),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        alert_id = row[0] if row else None
+        logger.info(
+            f"DB: raised {severity} {alert_type} alert for {region_name!r} (id={alert_id})"
+        )
+        return alert_id
+    except Exception as e:
+        logger.warning(f"insert_monitoring_alert failed for {region_name!r}: {e}")
+        return None
+
+
+def has_recent_alert(region_name: str, alert_type: str, within_minutes: int = 60) -> bool:
+    """True if an unacknowledged alert of this (region, type) was raised recently.
+
+    The daemon polls on a short interval in dev (CATALOG_POLL_INTERVAL_MINUTES=5),
+    so without this suppression window a persistent condition would append a near
+    identical row every cycle.  Acknowledged alerts are ignored, which lets an
+    operator deliberately re-arm a region by acknowledging its open alert.
+    """
+    sql = """
+        SELECT 1
+        FROM monitoring_alerts
+        WHERE region_name = %s
+          AND alert_type  = %s
+          AND acknowledged = FALSE
+          AND "timestamp" > NOW() - (%s * INTERVAL '1 minute')
+        LIMIT 1;
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (region_name, alert_type, within_minutes))
+                return cur.fetchone() is not None
+    except Exception as e:
+        # Fail "open" (report no recent alert) would risk a write storm, so fail
+        # "closed": on a DB hiccup we suppress rather than duplicate.
+        logger.warning(f"has_recent_alert check failed for {region_name!r}: {e}")
+        return True
+
+
+def get_recent_alerts(
+    limit: int = 50,
+    acknowledged: Optional[bool] = None,
+    region_name: Optional[str] = None,
+    alert_type: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Return recent alerts, newest first, with GeoJSON geometry.
+
+    Optional filters narrow by acknowledgement state, region, or alert family.
+    Raises on connection failure — the GET endpoint turns that into a 503.
+    """
+    conditions: List[str] = []
+    params: List[Any] = []
+
+    if acknowledged is not None:
+        conditions.append("acknowledged = %s")
+        params.append(acknowledged)
+    if region_name:
+        conditions.append("region_name = %s")
+        params.append(region_name)
+    if alert_type:
+        conditions.append("alert_type = %s")
+        params.append(alert_type)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params.append(limit)
+
+    sql = f"""
+        SELECT
+            id,
+            region_name,
+            alert_type,
+            severity,
+            computed_metrics,
+            "timestamp",
+            acknowledged,
+            CASE
+                WHEN geom IS NOT NULL THEN ST_AsGeoJSON(geom)::json
+                ELSE NULL
+            END AS geometry
+        FROM monitoring_alerts
+        {where_clause}
+        ORDER BY "timestamp" DESC
+        LIMIT %s
+    """
+    with get_connection() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, tuple(params))
+            rows = cur.fetchall()
+
+    result = []
+    for row in rows:
+        d = dict(row)
+        if d.get("timestamp"):
+            d["timestamp"] = d["timestamp"].isoformat()
+        result.append(d)
+    return result
+
+
+def get_scenes_in_bbox(
+    bbox: List[float],
+    limit: int = 20,
+    since_days: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Return recent catalogued scenes intersecting an ROI bbox, newest first.
+
+    This is the raw material handed to alert-check functions.
+    bbox: [min_lon, min_lat, max_lon, max_lat]
+    """
+    if len(bbox) != 4:
+        return []
+
+    conditions = ["ST_Intersects(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))"]
+    params: List[Any] = list(bbox)
+
+    if since_days is not None:
+        conditions.append("datetime > NOW() - (%s * INTERVAL '1 day')")
+        params.append(since_days)
+
+    params.append(limit)
+    sql = f"""
+        SELECT
+            id, scene_id, collection, datetime, cloud_cover,
+            thumbnail_url, stac_href,
+            CASE
+                WHEN geom IS NOT NULL THEN ST_AsGeoJSON(geom)::json
+                ELSE NULL
+            END AS geometry
+        FROM catalogued_scenes
+        WHERE {' AND '.join(conditions)}
+        ORDER BY datetime DESC
+        LIMIT %s
+    """
+    try:
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, tuple(params))
+                rows = cur.fetchall()
+    except Exception as e:
+        logger.warning(f"get_scenes_in_bbox failed: {e}")
+        return []
+
+    result = []
+    for row in rows:
+        d = dict(row)
+        if d.get("datetime"):
+            d["datetime"] = d["datetime"].isoformat()
+        result.append(d)
+    return result
+
+
+def acknowledge_alert(alert_id: int) -> bool:
+    """Mark one alert acknowledged.  Returns True if a row was updated."""
+    try:
+        with get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE monitoring_alerts SET acknowledged = TRUE "
+                    "WHERE id = %s AND acknowledged = FALSE RETURNING id;",
+                    (alert_id,),
+                )
+                row = cur.fetchone()
+            conn.commit()
+        return row is not None
+    except Exception as e:
+        logger.warning(f"acknowledge_alert({alert_id}) failed: {e}")
+        return False
+
+
+def get_scenes_covering_bbox(
+    bbox: List[float],
+    min_coverage: float = 0.6,
+    limit: int = 100,
+    since_days: Optional[int] = None,
+    collection: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Return scenes whose footprint COVERS at least `min_coverage` of an ROI bbox.
+
+    ST_Intersects (used by get_scenes_in_bbox) accepts a scene that clips the
+    ROI by a single sliver.  Reading a window from such a scene yields a raster
+    that is almost entirely boundless zero-fill, and every index computed on it
+    is meaningless — NDBI over zeros reads as "not bare", silently reporting a
+    heavily mined landscape as ~0% bare ground.
+
+    This variant computes the real overlap ratio and filters on it, returning
+    `coverage_ratio` on each row so callers can order or log it.
+    """
+    if len(bbox) != 4:
+        return []
+
+    conditions = [
+        "ST_Intersects(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326))",
+        """ST_Area(ST_Intersection(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326)))
+           / NULLIF(ST_Area(ST_MakeEnvelope(%s, %s, %s, %s, 4326)), 0) >= %s""",
+    ]
+    params: List[Any] = list(bbox) + list(bbox) + list(bbox) + [min_coverage]
+
+    if collection:
+        conditions.append("collection = %s")
+        params.append(collection)
+    if since_days is not None:
+        conditions.append("datetime > NOW() - (%s * INTERVAL '1 day')")
+        params.append(since_days)
+
+    params.extend(list(bbox) + list(bbox))  # for the SELECT-list coverage_ratio
+    params.append(limit)
+
+    sql = f"""
+        SELECT
+            id, scene_id, collection, datetime, cloud_cover,
+            thumbnail_url, stac_href,
+            ST_Area(ST_Intersection(geom, ST_MakeEnvelope(%s, %s, %s, %s, 4326)))
+              / NULLIF(ST_Area(ST_MakeEnvelope(%s, %s, %s, %s, 4326)), 0) AS coverage_ratio,
+            CASE WHEN geom IS NOT NULL THEN ST_AsGeoJSON(geom)::json ELSE NULL END AS geometry
+        FROM catalogued_scenes
+        WHERE {' AND '.join(conditions)}
+        ORDER BY datetime DESC
+        LIMIT %s
+    """
+    # The SELECT list is evaluated before WHERE placeholders in our param order,
+    # so rebuild the tuple in textual placeholder order: SELECT first, then WHERE.
+    select_params = list(bbox) + list(bbox)
+    where_params: List[Any] = list(bbox) + list(bbox) + list(bbox) + [min_coverage]
+    if collection:
+        where_params.append(collection)
+    if since_days is not None:
+        where_params.append(since_days)
+    ordered = tuple(select_params + where_params + [limit])
+
+    try:
+        with get_connection() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql, ordered)
+                rows = cur.fetchall()
+    except Exception as e:
+        logger.warning(f"get_scenes_covering_bbox failed: {e}")
+        return []
+
+    result = []
+    for row in rows:
+        d = dict(row)
+        if d.get("datetime"):
+            d["datetime"] = d["datetime"].isoformat()
+        if d.get("coverage_ratio") is not None:
+            d["coverage_ratio"] = float(d["coverage_ratio"])
+        result.append(d)
+    return result

@@ -10,6 +10,7 @@ import Layout from "@/components/layout/Layout";
 import Index from "./pages/Index";
 import Analyze from "./pages/Analyze";
 import About from "./pages/About";
+import Audit from "./pages/Audit";
 import Globe from "./pages/Globe";
 import MapView from "./pages/MapView";
 import NotFound from "./pages/NotFound";
@@ -30,6 +31,7 @@ const App = () => (
               <Route path="/globe" element={<Globe />} />
               <Route path="/analyze" element={<Analyze />} />
               <Route path="/about" element={<About />} />
+              <Route path="/audit" element={<Audit />} />
               <Route path="/map" element={<MapView />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />

@@ -10,6 +10,8 @@ Metadata-only ingestion:
 - Deduplicates on scene_id in PostGIS table `catalogued_scenes`.
 - Provides fetch_bitemporal_pair_for_roi() to materialise real bi-temporal GeoTIFF pairs
   from the catalog, replacing synthetic placeholder files on disk.
+- After each poll cycle, runs registered alert-check functions against every ROI
+  flagged `monitored` and persists triggered alerts to PostGIS `monitoring_alerts`.
 """
 
 import asyncio
@@ -19,7 +21,7 @@ import logging
 import os
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import db as analysis_db
 
@@ -35,6 +37,10 @@ EARTH_SEARCH_URL = "https://earth-search.aws.element84.com/v1/search"
 #                   sentinel-2-l2a if the first multi-collection query fails
 #   scenario_dir  – local data/<dir>/ folder that holds before.tif / after.tif
 #                   (set None to skip bi-temporal materialisation for that ROI)
+#   monitored     – when True, the daemon runs every registered alert-check
+#                   function against this ROI after each poll cycle and persists
+#                   any triggered alert to monitoring_alerts.  Set False to keep
+#                   ingesting scenes for an ROI without raising alerts on it.
 #
 # Disaster relevance notes:
 #   • Amazon / Rondônia   → optical only; no permanent water, SAR less useful
@@ -47,6 +53,7 @@ DEFAULT_ROIS: List[Dict[str, Any]] = [
         "bbox": [-62.2, -10.2, -61.8, -9.8],  # Ji-Paraná / Ariquemes corridor
         "collections": ["sentinel-2-l2a", "landsat-c2-l2"],
         "scenario_dir": "deforestation",       # maps to data/deforestation/
+        "monitored": True,
         "skip_materialization": True,          # Hand-verified multi-band scenario data preserved
     },
     {
@@ -54,20 +61,33 @@ DEFAULT_ROIS: List[Dict[str, Any]] = [
         "bbox": [-122.5, 37.5, -121.5, 38.5],  # East Bay / Diablo Range
         "collections": ["sentinel-2-l2a", "landsat-c2-l2", "sentinel-1-grd"],
         "scenario_dir": "disaster",             # maps to data/disaster/
+        "monitored": True,
     },
     {
         "name": "Bangladesh_Delta_Flood",
         "bbox": [89.5, 22.5, 91.5, 24.5],       # Brahmaputra/Ganges confluence
         "collections": ["sentinel-1-grd", "sentinel-2-l2a"],  # SAR first for flood
         "scenario_dir": None,                   # no local scenario dir yet
+        "monitored": True,
     },
     {
         "name": "SE_Australia_Bushfire",
         "bbox": [147.0, -38.0, 150.0, -35.5],  # NSW south coast / Snowy Mountains
         "collections": ["sentinel-2-l2a", "landsat-c2-l2"],
         "scenario_dir": None,
+        "monitored": True,
     },
 ]
+
+# ─── Monitored mining regions (Track A) ───────────────────────────────────────
+# Appended to DEFAULT_ROIS so the existing ingestion daemon and alert pass cover
+# them with no special-casing.  Their boundary polygons are APPROXIMATIONS — see
+# mining_regions.py for the full provenance caveat.
+try:
+    from mining_regions import MINING_REGIONS
+    DEFAULT_ROIS.extend(MINING_REGIONS)
+except Exception as _mining_err:  # pragma: no cover - import guard
+    logger.warning("Could not load mining regions: %s", _mining_err)
 
 # Flat list of all distinct collections across ROIs (used for fallback single-ROI fetches)
 DEFAULT_COLLECTIONS = ["sentinel-2-l2a", "sentinel-1-grd", "landsat-c2-l2"]
@@ -98,8 +118,15 @@ def fetch_stac_scenes(
     collections: List[str] = DEFAULT_COLLECTIONS,
     bbox: List[float] = None,
     limit: int = 15,
+    datetime_range: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Synchronous call to Earth Search STAC API to retrieve recent scenes."""
+    """Synchronous call to Earth Search STAC API to retrieve recent scenes.
+
+    datetime_range: optional RFC-3339 interval, e.g.
+        "2026-07-01T00:00:00Z/2026-09-17T23:59:59Z".
+        Omitted (the default) preserves the original "most recent scenes"
+        behaviour that the daemon relies on.
+    """
     if bbox is None:
         bbox = DEFAULT_ROIS[0]["bbox"]
 
@@ -108,6 +135,8 @@ def fetch_stac_scenes(
         "bbox": bbox,
         "limit": limit,
     }
+    if datetime_range:
+        payload["datetime"] = datetime_range
 
     try:
         req = urllib.request.Request(
@@ -124,7 +153,7 @@ def fetch_stac_scenes(
         # If multi-collection fails, fallback to sentinel-2-l2a only
         if len(collections) > 1:
             logger.info("Falling back to single collection ['sentinel-2-l2a']")
-            return fetch_stac_scenes(collections=["sentinel-2-l2a"], bbox=bbox, limit=limit)
+            return fetch_stac_scenes(collections=["sentinel-2-l2a"], bbox=bbox, limit=limit, datetime_range=datetime_range)
         return []
     except Exception as e:
         logger.warning(f"STAC fetch failed: {e}")
@@ -572,6 +601,270 @@ def _materialise_scene(
     return False
 
 
+# ─── Pluggable alert checks ───────────────────────────────────────────────────
+#
+# An alert-check function is the extension point for the monitoring daemon.
+# Contract:
+#
+#     def my_check(roi: dict, context: dict) -> dict | None
+#
+#   roi      – the DEFAULT_ROIS entry being evaluated (name, bbox, collections, …)
+#   context  – recent scene/metric data assembled by _build_alert_context():
+#                {
+#                  "scenes":          [ …catalogued_scenes rows, newest first… ],
+#                  "scene_count":     int,
+#                  "mean_cloud_cover": float | None,
+#                  "roi_bbox_wkt":    str,   # ROI footprint as WKT POLYGON
+#                }
+#
+#   Returns None when nothing is wrong, or a structured alert dict:
+#                {
+#                  "alert_type":       "land_change" | "severe_weather",
+#                  "severity":         "info" | "warning" | "critical",
+#                  "computed_metrics": {…},          # optional, JSONB-serialisable
+#                  "geom_wkt":         "POLYGON(…)", # optional, defaults to ROI bbox
+#                }
+#
+# Register additional checks with @register_alert_check — no daemon changes needed.
+
+AlertCheckFn = Callable[[Dict[str, Any], Dict[str, Any]], Optional[Dict[str, Any]]]
+
+_ALERT_CHECKS: List[AlertCheckFn] = []
+
+# How long a triggered (region, alert_type) pair stays suppressed before the same
+# condition may raise a fresh row.  Prevents a 5-minute dev poll interval from
+# appending a near-identical alert every cycle.
+ALERT_SUPPRESSION_MINUTES = int(os.environ.get("ALERT_SUPPRESSION_MINUTES", "60"))
+
+
+def register_alert_check(fn: AlertCheckFn) -> AlertCheckFn:
+    """Register an alert-check function.  Usable as a decorator."""
+    _ALERT_CHECKS.append(fn)
+    logger.debug("Registered alert check: %s", getattr(fn, "__name__", repr(fn)))
+    return fn
+
+
+def _bbox_to_wkt(bbox: List[float]) -> Optional[str]:
+    """[min_lon, min_lat, max_lon, max_lat] → WKT POLYGON, or None if malformed."""
+    if not bbox or len(bbox) != 4:
+        return None
+    min_lon, min_lat, max_lon, max_lat = bbox
+    return (
+        f"POLYGON(({min_lon} {min_lat}, {max_lon} {min_lat}, "
+        f"{max_lon} {max_lat}, {min_lon} {max_lat}, {min_lon} {min_lat}))"
+    )
+
+
+def _build_alert_context(roi: Dict[str, Any]) -> Dict[str, Any]:
+    """Assemble the recent scene/metric data handed to every alert check."""
+    bbox = roi.get("bbox") or []
+    scenes = analysis_db.get_scenes_in_bbox(bbox, limit=20, since_days=90)
+
+    clouds = [
+        s["cloud_cover"] for s in scenes
+        if s.get("cloud_cover") is not None
+    ]
+    mean_cloud = round(sum(clouds) / len(clouds), 2) if clouds else None
+
+    return {
+        "scenes": scenes,
+        "scene_count": len(scenes),
+        "mean_cloud_cover": mean_cloud,
+        "roi_bbox_wkt": _bbox_to_wkt(bbox),
+    }
+
+
+@register_alert_check
+def severe_weather_check(
+    roi: Dict[str, Any], context: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Flag ROIs whose recent optical scenes are persistently cloud-obscured.
+
+    Sustained heavy cloud over a disaster-relevant ROI is both a weather signal
+    in its own right and an operational one: optical analysis is degraded, so
+    the region should be re-tasked to SAR.  Needs at least 3 scenes so a single
+    cloudy acquisition cannot trip it.
+    """
+    mean_cloud = context.get("mean_cloud_cover")
+    scene_count = context.get("scene_count", 0)
+
+    if mean_cloud is None or scene_count < 3:
+        return None
+    if mean_cloud < 70.0:
+        return None
+
+    if mean_cloud >= 90.0:
+        severity = "critical"
+    elif mean_cloud >= 80.0:
+        severity = "warning"
+    else:
+        severity = "info"
+
+    return {
+        "alert_type": "severe_weather",
+        "severity": severity,
+        "computed_metrics": {
+            "check": "severe_weather_check",
+            "mean_cloud_cover_pct": mean_cloud,
+            "scenes_evaluated": scene_count,
+            "threshold_pct": 70.0,
+            "window_days": 90,
+            "recommendation": "Re-task ROI to SAR collections (sentinel-1-grd)",
+        },
+    }
+
+
+@register_alert_check
+def land_change_check(
+    roi: Dict[str, Any], context: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Flag ROIs whose materialised bi-temporal pair shows large spectral change.
+
+    Reuses the same deterministic pixel engine that backs /api/analyze, so an
+    alert's numbers are reproducible against the GeoTIFFs on disk.  Silently
+    returns None for ROIs with no scenario_dir or no materialised pair yet.
+    """
+    scenario_dir = roi.get("scenario_dir")
+    if not scenario_dir:
+        return None
+
+    before_path = os.path.join("data", scenario_dir, "before.tif")
+    after_path = os.path.join("data", scenario_dir, "after.tif")
+    if not (os.path.exists(before_path) and os.path.exists(after_path)):
+        return None
+
+    try:
+        import rasterio
+        from geospatial_metrics import compute_change_area
+
+        with rasterio.open(before_path) as src:
+            before_bands = src.read()
+            geotransform = src.transform
+        with rasterio.open(after_path) as src:
+            after_bands = src.read()
+
+        # Pixel-diff needs identical grids; a shape mismatch means the pair is
+        # mid-materialisation, so skip this cycle rather than report nonsense.
+        if before_bands.shape != after_bands.shape:
+            logger.debug(
+                "land_change_check: shape mismatch for ROI '%s' (%s vs %s) — skipping",
+                roi.get("name"), before_bands.shape, after_bands.shape,
+            )
+            return None
+
+        metrics = compute_change_area(before_bands, after_bands, geotransform)
+    except Exception as e:
+        logger.debug("land_change_check failed for ROI '%s': %s", roi.get("name"), e)
+        return None
+
+    change_pct = metrics.get("change_pct")
+    if change_pct is None or change_pct < 10.0:
+        return None
+
+    if change_pct >= 40.0:
+        severity = "critical"
+    elif change_pct >= 20.0:
+        severity = "warning"
+    else:
+        severity = "info"
+
+    return {
+        "alert_type": "land_change",
+        "severity": severity,
+        "computed_metrics": {
+            "check": "land_change_check",
+            "threshold_pct": 10.0,
+            "scenario_dir": scenario_dir,
+            **metrics,
+        },
+    }
+
+
+# Track A specialist — registered on import so the daemon picks it up with no
+# further wiring (see mining_monitor.register()).
+try:
+    import mining_monitor
+    mining_monitor.register()
+    logger.info("Registered mining expansion alert check.")
+except Exception as _mm_err:  # pragma: no cover - import guard
+    logger.warning("Could not register mining monitor: %s", _mm_err)
+
+
+def run_alert_checks() -> int:
+    """Run every registered check against every monitored ROI.
+
+    Returns the number of alerts actually persisted.  Sync (psycopg2 + rasterio),
+    so the daemon calls it through a thread executor.  Never raises: one broken
+    check function must not take down the ingestion loop.
+    """
+    if not _ALERT_CHECKS:
+        return 0
+
+    raised = 0
+    for roi in DEFAULT_ROIS:
+        if not roi.get("monitored"):
+            continue
+
+        roi_name = roi.get("name", "unknown")
+        try:
+            context = _build_alert_context(roi)
+        except Exception as e:
+            logger.warning("Alert context build failed for ROI '%s': %s", roi_name, e)
+            continue
+
+        for check in _ALERT_CHECKS:
+            check_name = getattr(check, "__name__", repr(check))
+            try:
+                alert = check(roi, context)
+            except Exception as e:
+                logger.warning(
+                    "Alert check '%s' raised on ROI '%s' (non-fatal): %s",
+                    check_name, roi_name, e,
+                )
+                continue
+
+            if not alert:
+                continue
+            if not isinstance(alert, dict):
+                logger.warning(
+                    "Alert check '%s' returned %s, expected dict or None — ignoring",
+                    check_name, type(alert).__name__,
+                )
+                continue
+
+            alert_type = alert.get("alert_type")
+            severity = alert.get("severity")
+            if not alert_type or not severity:
+                logger.warning(
+                    "Alert check '%s' returned a dict missing alert_type/severity — ignoring",
+                    check_name,
+                )
+                continue
+
+            if analysis_db.has_recent_alert(
+                roi_name, alert_type, ALERT_SUPPRESSION_MINUTES
+            ):
+                logger.debug(
+                    "Suppressing duplicate %s alert for ROI '%s' (open alert within %d min)",
+                    alert_type, roi_name, ALERT_SUPPRESSION_MINUTES,
+                )
+                continue
+
+            alert_id = analysis_db.insert_monitoring_alert(
+                region_name=roi_name,
+                alert_type=alert_type,
+                severity=severity,
+                computed_metrics=alert.get("computed_metrics"),
+                geom_wkt=alert.get("geom_wkt") or context.get("roi_bbox_wkt"),
+            )
+            if alert_id is not None:
+                raised += 1
+
+    if raised:
+        logger.info("Alert pass complete: %d new alert(s) raised.", raised)
+    return raised
+
+
 async def stac_catalog_daemon() -> None:
     """Background loop that polls STAC on a configurable schedule.
 
@@ -632,6 +925,18 @@ async def stac_catalog_daemon() -> None:
                             roi["name"],
                             mat_err,
                         )
+
+            # ── Alert pass ──────────────────────────────────────────────────
+            # Runs last so checks see this cycle's freshly ingested scenes and
+            # freshly materialised GeoTIFF pairs.  Off-thread (psycopg2 and
+            # rasterio are both sync).  run_alert_checks() swallows per-check
+            # failures internally; this guard only covers executor-level faults.
+            try:
+                await loop.run_in_executor(None, run_alert_checks)
+            except Exception as alert_err:
+                logger.warning(
+                    "Alert pass failed this cycle (non-fatal): %s", alert_err
+                )
 
         except asyncio.CancelledError:
             logger.info("STAC catalog daemon cancelled.")
